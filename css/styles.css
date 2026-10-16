@@ -1545,3 +1545,107 @@ body.mode-admin .xp-hud { display: none; }
 @media (max-width: 480px) {
   .adm-ch-grid { grid-template-columns: 1fr; }
 }
+
+
+/* —— v8 mobile polish + admin snapshot + next-step —— */
+.vocab-speak,
+button.vocab-speak {
+  min-height: 44px !important;
+  min-width: 96px;
+  padding: 10px 14px !important;
+  font-size: 14px !important;
+  touch-action: manipulation;
+}
+.next-step-hint {
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: linear-gradient(135deg, #fff7f2, #eef9f1);
+  border: 1px solid #f0c9a0;
+  border-radius: 14px;
+  font-size: 13px;
+  line-height: 1.55;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.next-step-hint .btn { margin: 0; }
+.adm-snap-line {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  margin: 4px 0 10px;
+  padding: 8px 10px;
+  background: #faf6f2;
+  border-radius: 10px;
+}
+.adm-snapshot-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 8px;
+}
+.adm-task-ring {
+  --pct: 0;
+  width: 64px;
+  height: 64px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: conic-gradient(#3d8b6e calc(var(--pct) * 1%), #ece4dc 0);
+  display: grid;
+  place-items: center;
+  position: relative;
+}
+.adm-task-ring::before {
+  content: attr(data-pct);
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 800;
+  color: #2f6b52;
+}
+.adm-task-ring.empty::before { color: var(--muted); }
+.adm-snapshot-row .adm-stats { flex: 1; margin: 0; }
+.adm-spark {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 48px;
+  margin-top: 12px;
+  padding: 6px 4px 0;
+  border-top: 1px dashed var(--line);
+}
+.adm-spark-bar {
+  flex: 1;
+  min-width: 6px;
+  max-width: 18px;
+  border-radius: 4px 4px 2px 2px;
+  background: #c9b8a8;
+}
+.adm-spark-bar.pass { background: linear-gradient(180deg, #81b29a, #3d8b6e); }
+.adm-spark-bar.fail { background: linear-gradient(180deg, #f0c9a0, #e07a5f); }
+.adm-spark-caption { margin-top: 6px; font-size: 11px; }
+
+@media (max-width: 375px) {
+  .container { padding-left: 12px; padding-right: 12px; }
+  .card { padding: 12px; overflow-wrap: anywhere; }
+  .vocab-card { padding: 10px 12px; }
+  .btn-row { gap: 8px; }
+  .btn-row .btn { flex: 1 1 calc(50% - 8px); min-width: 0; }
+  .hero h2 { font-size: 20px; }
+  .header-right { gap: 4px; }
+  .game-task-item { flex-wrap: wrap; }
+  .game-task-item .task-actions { width: 100%; justify-content: flex-end; }
+  .bottom-nav { padding-left: 2px; padding-right: 2px; }
+  .nav-btn { font-size: 9px; padding: 6px 2px; }
+  .field-input { font-size: 16px; } /* avoid iOS zoom */
+}
+
+.bottom-nav {
+  position: fixed;
+  z-index: 30;
+}

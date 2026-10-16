@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#e07a5f" />
   <meta name="description" content="口语小站：妹妹免登录学英语打卡升级；哥哥管理端看进度发任务；ee 自动每日任务" />
-  <title>口语小站 · 任务升级练口语 v7</title>
-  <link rel="stylesheet" href="css/styles.css?v=7" />
+  <title>口语小站 · 任务升级练口语 v8</title>
+  <link rel="stylesheet" href="css/styles.css?v=8" />
 </head>
 <body>
   <!-- ========== 学习端（妹妹，免登录） ========== -->
@@ -51,6 +51,7 @@
           <h3>🎮 今日任务 <span class="badge-soft">ee 自动 + 哥哥偶尔发布</span></h3>
           <p class="hint">流程：点「去练」→ 完成模块练习 → 回这里点「领取 XP」。也可在模块页点「完成并领 XP」。主要任务由 ee 每天自动布置。</p>
           <ul id="game-task-list" class="game-task-list"></ul>
+          <div id="next-step-hint" class="next-step-hint" style="display:none;"></div>
           <div class="btn-row" style="margin-top:10px;">
             <button type="button" class="btn btn-secondary" data-go="#challenges">挑战测验</button>
             <button type="button" class="btn btn-ghost" data-go="#progress">我的进度 / 徽章</button>
@@ -68,11 +69,12 @@
           <input id="cloud-family-secret" class="field-input" type="password" placeholder="通常留空" autocomplete="off" />
           <label class="check-row"><input type="checkbox" id="cloud-sync-enabled" /> 启用云同步（妹妹进度防抖自动推送）</label>
           <div class="btn-row" style="margin-top:10px;">
-            <button type="button" id="btn-cloud-save" class="btn btn-primary">保存设置</button>
+            <button type="button" id="btn-cloud-quick-enable" class="btn btn-primary">🚀 快速启用同步</button>
             <button type="button" id="btn-cloud-oneclick-learn" class="btn btn-secondary">⚡ 测试连通</button>
+            <button type="button" id="btn-cloud-save" class="btn btn-ghost">保存设置</button>
             <button type="button" id="btn-cloud-push-now" class="btn btn-ghost">立即推送</button>
           </div>
-          <p class="hint" style="margin-top:6px;">「测试连通」会保存设置并检查 Worker 健康；完整「初始化家庭房间」请在管理端一键完成（需要管理密码）。</p>
+          <p class="hint" style="margin-top:6px;">「快速启用」自动勾选同步并补全同步码；「测试连通」会测延迟（慢时可重试，或用导出/导入备用）。家庭房间初始化在管理端一键完成。</p>
           <p id="cloud-sync-status" class="status-toast cloud-status">状态：未配置 · 上次同步：—</p>
         </div>
 
@@ -201,7 +203,7 @@
         <p id="vocab-page-hint" class="hint page-lead"></p>
         <h3 id="vocab-page-theme" class="theme-heading"></h3>
         <div id="vocab-theme-switch" class="chip-row" style="margin-bottom:12px;"></div>
-        <p id="vocab-speak-status" class="status-toast hint">点单词旁「听发音」；Vivo/QQ 等手机会自动走在线发音，可反复点重播。</p>
+        <p id="vocab-speak-status" class="status-toast hint">点「听发音」：手机默认在线美式（可缓存重播）；失败会提示。首触后可反复点。</p>
         <div id="vocab-full-list" class="vocab-grid"></div>
         <div class="card" style="margin-top:12px;">
           <div class="btn-row">
@@ -369,10 +371,14 @@
             <button type="button" id="btn-refresh-adm" class="btn btn-ghost btn-sm">刷新</button>
           </div>
           <p class="hint">数据来源：<strong id="adm-source">—</strong></p>
-          <div class="adm-stats">
-            <div class="adm-stat"><span>等级</span><strong>Lv.<span id="adm-level">1</span></strong></div>
-            <div class="adm-stat"><span>经验</span><strong id="adm-xp">0</strong></div>
-            <div class="adm-stat"><span>连续</span><strong id="adm-streak">0</strong> 天</div>
+          <p id="adm-snap-line" class="adm-snap-line">一屏速览：—</p>
+          <div class="adm-snapshot-row">
+            <div class="adm-task-ring" id="adm-task-ring" data-pct="—" style="--pct:0" aria-label="今日任务完成率"></div>
+            <div class="adm-stats">
+              <div class="adm-stat"><span>等级</span><strong>Lv.<span id="adm-level">1</span></strong></div>
+              <div class="adm-stat"><span>经验</span><strong id="adm-xp">0</strong></div>
+              <div class="adm-stat"><span>连续</span><strong id="adm-streak">0</strong> 天</div>
+            </div>
           </div>
           <p id="adm-xp-bar-label" class="hint"></p>
           <div class="progress-wrap"><div id="adm-xp-bar" class="progress-bar"></div></div>
@@ -475,11 +481,11 @@
   </div>
   <div id="app-toast" class="app-toast" role="status" aria-live="polite"></div>
 
-  <script src="js/tts.js?v=7"></script>
-  <script src="js/storage.js?v=7"></script>
-  <script src="js/cloud.js?v=7"></script>
-  <script src="js/game.js?v=7"></script>
-  <script src="js/admin.js?v=7"></script>
-  <script src="js/app.js?v=7"></script>
+  <script src="js/tts.js?v=8"></script>
+  <script src="js/storage.js?v=8"></script>
+  <script src="js/cloud.js?v=8"></script>
+  <script src="js/game.js?v=8"></script>
+  <script src="js/admin.js?v=8"></script>
+  <script src="js/app.js?v=8"></script>
 </body>
 </html>

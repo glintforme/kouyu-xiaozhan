@@ -1,4 +1,4 @@
-/* 口语小站 · 学习端主逻辑 v7 · 云同步 live + ee API */
+/* 口语小站 · 学习端主逻辑 v8 · 手机发音 / 下一步 / 探活 */
 (function () {
   "use strict";
 
@@ -120,20 +120,44 @@
           apiBase: next.apiBase,
           familySecret: next.familySecret,
           syncEnabled: next.syncEnabled,
-          // learn side: health only (no admin hash)
         });
         const msg = (result.steps || []).join(" · ");
+        const lat = result.health && result.health.latencyMs != null ? result.health.latencyMs + "ms" : "";
         if (result.ok) {
-          toast("连通成功：" + msg);
+          toast("连通成功" + (lat ? " · " + lat : "") + "：" + msg);
         } else {
-          toast("连通失败：" + (result.error || msg));
+          toast("连通失败：" + (result.error || msg) + "（可稍后重试或用导出/导入备用）");
         }
         renderCloudStatus();
       } catch (e) {
-        toast("连通失败：" + (e.message || e));
+        toast("连通失败：" + (e.message || e) + "（可稍后重试）");
         Cloud.setStatus("连接失败", e.message || String(e));
         renderCloudStatus();
       }
+    });
+
+    document.getElementById("btn-cloud-quick-enable")?.addEventListener("click", () => {
+      const next = Cloud.loadCloud();
+      let code = Cloud.normalizeCode(codeEl?.value || next.familyCode || "");
+      if (code.length < 4) {
+        code = "mei" + String(Date.now()).slice(-5);
+        if (codeEl) codeEl.value = code;
+      }
+      const base = Cloud.normalizeBase(baseEl?.value || "") || Cloud.DEFAULT_API_BASE;
+      if (baseEl) baseEl.value = base;
+      if (enEl) enEl.checked = true;
+      next.familyCode = code;
+      next.apiBase = base;
+      next.familySecret = (secEl?.value || "").trim();
+      next.syncEnabled = true;
+      next.lastSyncStatus = "已快速启用，建议点「测试连通」";
+      Cloud.saveCloud(next);
+      if (Gm.EE_CONFIG) {
+        Gm.EE_CONFIG.apiEndpoint = base + "/api/ee/tasks/generate";
+        Gm.EE_CONFIG.mode = "api";
+      }
+      renderCloudStatus();
+      toast("已快速启用云同步（码：" + code + "）。请与哥哥约定同一码，再点「测试连通」。");
     });
 
     document.getElementById("btn-cloud-push-now")?.addEventListener("click", async () => {
@@ -284,6 +308,32 @@
           toast(msg);
           flashXpHud();
         } else toast("任务已完成");
+      });
+    });
+    renderNextStepHint();
+  }
+
+  function renderNextStepHint() {
+    const el = document.getElementById("next-step-hint");
+    if (!el) return;
+    const tasks = state.gameTasks || [];
+    const done = tasks.filter((t) => t.done).length;
+    const pending = tasks.filter((t) => !t.done);
+    if (!tasks.length) {
+      el.style.display = "none";
+      return;
+    }
+    el.style.display = "block";
+    if (pending.length) {
+      const next = pending[0];
+      el.innerHTML = `<strong>下一步建议</strong>：先去「${escapeHtml(next.title)}」→ 练完回这里点「领取」。<button type="button" class="btn btn-primary btn-sm" data-go="${escapeAttr(next.link || "#home")}">去练这一项</button>`;
+    } else {
+      el.innerHTML = `<strong>今日任务完成 🎉</strong> 建议：<button type="button" class="btn btn-primary btn-sm" data-go="#challenges">做一题周测</button> <button type="button" class="btn btn-secondary btn-sm" data-go="#chat">找 ee 开口说</button> <button type="button" class="btn btn-ghost btn-sm" data-go="#vocab">复习今日单词</button>`;
+    }
+    el.querySelectorAll("[data-go]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        location.hash = btn.getAttribute("data-go");
       });
     });
   }
@@ -763,20 +813,23 @@
     const TTS = window.KouyuTTS;
     if (!TTS) {
       if (status) status.textContent = "发音模块未加载。";
-      toast("发音模块未加载");
+      toast("发音失败：发音模块未加载");
       return;
     }
     try {
+      if (TTS.unlockAudio) await TTS.unlockAudio();
+      if (status) status.textContent = "发音加载中…";
       await TTS.speak(text, {
         lang: "en-US",
         rate: 0.88,
         pitch: 1.02,
+        preferAudio: TTS.preferOnlineAudio ? TTS.preferOnlineAudio() : false,
         onStatus: (msg) => {
           if (status) status.textContent = msg;
         },
       });
     } catch (e) {
-      const msg = "发音失败：" + (e && e.message ? e.message : "请换浏览器或检查网络");
+      const msg = "发音失败：" + (e && e.message ? e.message : "请检查网络后重试");
       if (status) status.textContent = msg;
       toast(msg);
     }

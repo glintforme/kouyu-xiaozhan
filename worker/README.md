@@ -4,7 +4,7 @@
 > URL：`https://kouyu-xiaozhan-api.kncrty.workers.dev`  
 > Health：`GET /api/health` → `{ ok: true, sync: true, ai: true, version: 7 }`  
 > KV：`kouyu-sync`（id `db6288cfc0bc40539357e7406a166d99`）  
-> 前端默认 API Base 已指向此地址（`?v=7`）。
+> 前端默认 API Base 已指向此地址（`?v=8` · Worker version 8）。
 
 ## 提供的接口
 
@@ -44,7 +44,7 @@ npx wrangler secret put OPENAI_API_KEY
 
 ## 前端一键连通
 
-1. 打开 https://glintforme.github.io/kouyu-xiaozhan/?v=7
+1. 打开 https://glintforme.github.io/kouyu-xiaozhan/?v=8
 2. 哥哥：管理端设密码 → 填家庭同步码 →「⚡ 一键初始化 + 测试连通」
 3. 妹妹：同一同步码 → 启用云同步 →「⚡ 测试连通」→ 学习自动推送
 

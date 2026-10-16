@@ -1,9 +1,9 @@
 /**
- * 口语小站 · Cloudflare Worker (LIVE)
+ * 口语小站 · Cloudflare Worker (LIVE v8)
  * 家庭同步 + ee 教练 API
  *
- * Prefer: Workers AI → OpenAI → rules
- * Binding: KV SYNC · optional AI
+ * Prefer: Workers AI (non-deprecated models) → OpenAI → rules
+ * Binding: KV SYNC · AI
  * Secrets: FAMILY_SECRET, OPENAI_API_KEY
  *
  * Live: https://kouyu-xiaozhan-api.kncrty.workers.dev
@@ -15,6 +15,13 @@ const CORS_ORIGINS = [
   "http://127.0.0.1:8765",
   "http://localhost:5500",
   "http://127.0.0.1:5500",
+];
+
+/** Non-deprecated Workers AI models (llama-3.1-8b-instruct base is deprecated) */
+const AI_MODELS = [
+  "@cf/meta/llama-3.1-8b-instruct-fast",
+  "@cf/meta/llama-3.1-8b-instruct-fp8",
+  "@cf/meta/llama-3.2-3b-instruct",
 ];
 
 function corsHeaders(request) {
@@ -78,18 +85,20 @@ function familyKey(code, suffix) {
   return `family:${code}:${suffix}`;
 }
 
-const EE_SYSTEM_PROMPT = `你是「教练 ee」（口语教练），服务对象是一位中国大二英语专业、口语仍偏弱的学生（可称「妹妹」或学习者名字）。
+const EE_SYSTEM_PROMPT = `You are Coach ee, a gentle spoken-English coach for a Chinese university English major whose speaking is still weak.
 
-回复要求（必须遵守）：
-1. 中英双语：先简短中文反馈，再给英文示范句；关键英文词加「📌 词 — 中文」释义。
-2. 温和纠错：若有语法/用词问题，标 ❌ 原句 → ✅ 改正，并一句说清原因。
-3. 发音：难词给简易 IPA（如 /θɪŋk/），提示口型。
-4. 鼓励开口：每条结尾给一个很短的跟读/造句任务。
-5. 长度：控制在约 80–140 汉字+英文合计可读范围内，不要长篇大论。
-6. 不要声称自己是某个底层大模型；自称教练 ee 即可。
-7. 可自然融入英语专业小词（discuss / paraphrase / thesis / theme）与礼貌交流句。`;
+ALWAYS reply in this exact shape (UTF-8 Chinese + English):
+1) Start with: 教练 ee：
+2) One short Chinese feedback line.
+3) If the student made a grammar/tense mistake, show:
+❌ <wrong>
+✅ <correct>
+plus one short Chinese reason.
+4) Give 1 natural English model sentence.
+5) Add 1–3 gloss lines like: 📌 word — 中文
+6) End with one tiny speaking task in Chinese (跟读/造句).
+Keep the whole reply under ~120 Chinese characters + English. Be warm. Never claim to be a base LLM. Do not invent weird symbols or repeat the same word.`;
 
-/** Rule-based ee coach — Chinese + English correction persona */
 function ruleBasedCoach(messages, learnerName) {
   const name = learnerName || "同学";
   const last =
@@ -147,7 +156,6 @@ function ruleBasedCoach(messages, learnerName) {
     if (r.test.test(t)) return r.reply;
   }
 
-  // Generic soft coach: echo + invite full sentence
   const short = t.length < 12;
   if (short) {
     return `教练 ee：收到「${t}」～再试着说成完整句子好吗？\n例如：I want to improve my speaking this semester.\n\n📌 improve — 提高 · speaking — 口语 · semester — 学期\n把完整句发给我，我帮你纠一下。`;
@@ -169,47 +177,72 @@ function formatMessagesForPrompt(messages) {
     .join("\n");
 }
 
-async function workersAiCoach(env, messages, learnerName) {
-  if (!env.AI || typeof env.AI.run !== "function") return null;
-  const name = learnerName || "同学";
-  const dialogue = formatMessagesForPrompt(messages);
-  const userPrompt = `学习者名字：${name}\n\n对话记录：\n${dialogue || "(empty — greet the learner)"}\n\n请以「教练 ee：」开头回复。`;
-
-  // Prefer messages API when supported; fall back to prompt
-  try {
-    const result = await env.AI.run("@cf/meta/llama-3.1-8b-instruct", {
-      messages: [
-        { role: "system", content: EE_SYSTEM_PROMPT },
-        { role: "user", content: userPrompt },
-      ],
-      max_tokens: 420,
-      temperature: 0.65,
-    });
-    const text =
-      result?.response ||
-      result?.result?.response ||
-      (typeof result === "string" ? result : null);
-    if (text && String(text).trim()) {
-      return { reply: String(text).trim(), engine: "workers-ai" };
-    }
-  } catch (e) {
-    console.warn("Workers AI messages mode failed", e);
-  }
-
-  try {
-    const prompt = `${EE_SYSTEM_PROMPT}\n\n${userPrompt}\n\n教练 ee:`;
-    const result = await env.AI.run("@cf/meta/llama-3.1-8b-instruct", {
-      prompt,
-      max_tokens: 420,
-    });
-    const text = result?.response || result?.result?.response;
-    if (text && String(text).trim()) {
-      return { reply: String(text).trim(), engine: "workers-ai" };
-    }
-  } catch (e) {
-    console.warn("Workers AI prompt mode failed", e);
+function extractAiText(result) {
+  if (!result) return null;
+  if (typeof result === "string") return result.trim() || null;
+  const candidates = [
+    result.response,
+    result.result?.response,
+    result.result,
+    result.output_text,
+    result.text,
+    Array.isArray(result.output)
+      ? result.output.map((o) => o?.content || o?.text || "").join("")
+      : null,
+  ];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim()) return c.trim();
   }
   return null;
+}
+
+async function runWorkersAiModel(env, model, messagesPayload, promptPayload) {
+  // Try messages mode first
+  try {
+    const result = await env.AI.run(model, messagesPayload);
+    const text = extractAiText(result);
+    if (text) return { reply: text, engine: "workers-ai", model };
+  } catch (e) {
+    console.warn("Workers AI messages failed", model, e && e.message ? e.message : e);
+  }
+  // Prompt fallback
+  try {
+    const result = await env.AI.run(model, promptPayload);
+    const text = extractAiText(result);
+    if (text) return { reply: text, engine: "workers-ai", model };
+  } catch (e) {
+    console.warn("Workers AI prompt failed", model, e && e.message ? e.message : e);
+  }
+  return null;
+}
+
+async function workersAiCoach(env, messages, learnerName) {
+  if (!env.AI || typeof env.AI.run !== "function") {
+    return { error: "AI binding missing" };
+  }
+  const name = learnerName || "同学";
+  const dialogue = formatMessagesForPrompt(messages);
+  const userPrompt = `Learner name: ${name}\n\nDialogue:\n${dialogue || "(empty — greet the learner)"}\n\nReply now as 教练 ee： following the required shape. Correct mistakes gently.`;
+  const messagesPayload = {
+    messages: [
+      { role: "system", content: EE_SYSTEM_PROMPT },
+      { role: "user", content: userPrompt },
+    ],
+    max_tokens: 420,
+    temperature: 0.65,
+  };
+  const promptPayload = {
+    prompt: `${EE_SYSTEM_PROMPT}\n\n${userPrompt}\n\n教练 ee:`,
+    max_tokens: 420,
+  };
+
+  const errors = [];
+  for (const model of AI_MODELS) {
+    const hit = await runWorkersAiModel(env, model, messagesPayload, promptPayload);
+    if (hit && hit.reply) return hit;
+    errors.push(model + " empty/fail");
+  }
+  return { error: errors.join("; ") || "all models failed" };
 }
 
 async function openAiCoach(env, messages, learnerName) {
@@ -226,9 +259,7 @@ async function openAiCoach(env, messages, learnerName) {
         messages: [
           {
             role: "system",
-            content:
-              EE_SYSTEM_PROMPT +
-              `\nLearner name: ${learnerName || "同学"}.`,
+            content: EE_SYSTEM_PROMPT + `\nLearner name: ${learnerName || "同学"}.`,
           },
           ...(messages || []).slice(-12).map((m) => ({
             role:
@@ -245,7 +276,7 @@ async function openAiCoach(env, messages, learnerName) {
     if (res.ok) {
       const data = await res.json();
       const text = data.choices?.[0]?.message?.content;
-      if (text) return { reply: text, engine: "openai" };
+      if (text) return { reply: text, engine: "openai", model: env.OPENAI_MODEL || "gpt-4o-mini" };
     }
   } catch (e) {
     console.warn("OpenAI coach failed", e);
@@ -253,18 +284,94 @@ async function openAiCoach(env, messages, learnerName) {
   return null;
 }
 
+/** Repair UTF-8 bytes that were mis-decoded as Latin-1 (common Workers AI glitch). */
+function fixMojibake(text) {
+  const s = String(text || "");
+  if (!s) return s;
+  const hasCjk = /[\u4e00-\u9fff]/.test(s);
+  // Heuristic: lots of high Latin-1 bytes typical of UTF-8-as-latin1
+  let high = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c >= 0x80 && c <= 0xff) high++;
+  }
+  if (hasCjk && high < 3) return s;
+  if (high < 4) return s;
+  try {
+    const bytes = new Uint8Array(s.length);
+    for (let i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i) & 0xff;
+    const decoded = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+    const cjkNew = (decoded.match(/[\u4e00-\u9fff]/g) || []).length;
+    const cjkOld = (s.match(/[\u4e00-\u9fff]/g) || []).length;
+    if (cjkNew > cjkOld + 1 || /教练/.test(decoded)) return decoded;
+  } catch {
+    /* ignore */
+  }
+  return s;
+}
+
+function looksLikeGoodCoachReply(text) {
+  const s = fixMojibake(String(text || "").trim());
+  if (s.length < 20 || s.length > 1200) return false;
+  if (/\uFFFD|ï¿½/.test(s)) return false;
+  if (/(.)\1{8,}/.test(s)) return false;
+  const hasCjk = /[\u4e00-\u9fff]/.test(s);
+  const hasLatin = /[A-Za-z]{3,}/.test(s);
+  // Must be bilingual-ish for our coach persona
+  if (!hasCjk || !hasLatin) return false;
+  // Still reject leftover latin1 mojibake markers for Chinese prompts
+  if (/æ.|ç»|å.|ï¼/.test(s) && !/教练|跟读|释义/.test(s)) return false;
+  return true;
+}
+
 async function aiCoach(env, messages, learnerName) {
-  // Prefer Workers AI (already bound on live Worker), then OpenAI, then rules
   const viaAi = await workersAiCoach(env, messages, learnerName);
-  if (viaAi) return viaAi;
+  if (viaAi && viaAi.reply) {
+    viaAi.reply = fixMojibake(viaAi.reply);
+    if (looksLikeGoodCoachReply(viaAi.reply)) return viaAi;
+  }
 
   const viaOpenAi = await openAiCoach(env, messages, learnerName);
-  if (viaOpenAi) return viaOpenAi;
+  if (viaOpenAi && looksLikeGoodCoachReply(viaOpenAi.reply)) return viaOpenAi;
+  if (viaOpenAi && viaOpenAi.reply) return viaOpenAi; // openai usually fine
+
+  const aiErrorParts = [];
+  if (viaAi && viaAi.error) aiErrorParts.push(viaAi.error);
+  if (viaAi && viaAi.reply && !looksLikeGoodCoachReply(viaAi.reply)) {
+    aiErrorParts.push("workers-ai reply failed quality gate");
+  }
 
   return {
     reply: ruleBasedCoach(messages, learnerName),
     engine: "rules",
+    aiError: aiErrorParts.join("; ") || null,
   };
+}
+
+async function probeAi(env) {
+  if (!env.AI || typeof env.AI.run !== "function") {
+    return { ok: false, error: "no AI binding" };
+  }
+  const t0 = Date.now();
+  for (const model of AI_MODELS) {
+    try {
+      const result = await env.AI.run(model, {
+        messages: [
+          { role: "system", content: "Reply with exactly: OK" },
+          { role: "user", content: "ping" },
+        ],
+        max_tokens: 8,
+        temperature: 0,
+      });
+      const text = extractAiText(result);
+      if (text) {
+        return { ok: true, model, ms: Date.now() - t0, sample: text.slice(0, 40) };
+      }
+    } catch (e) {
+      /* try next */
+    }
+  }
+  return { ok: false, ms: Date.now() - t0, error: "all AI models failed probe" };
 }
 
 function generateDailyTasks(seedInput) {
@@ -321,22 +428,99 @@ export default {
     }
 
     if (url.pathname === "/" || url.pathname === "/api/health") {
+      const deep = url.searchParams.get("deep") === "1" || url.searchParams.get("probe") === "ai";
+      const body = {
+        ok: true,
+        service: "kouyu-xiaozhan-worker",
+        version: 8,
+        sync: !!env.SYNC,
+        ai: !!(env.AI || env.OPENAI_API_KEY),
+        aiBinding: !!env.AI,
+        aiModels: AI_MODELS,
+        familySecretRequired: !!env.FAMILY_SECRET,
+        ts: new Date().toISOString(),
+      };
+      if (deep) {
+        body.aiProbe = await probeAi(env);
+      }
+      return json(body, 200, request);
+    }
+
+    // TTS does not require family secret (public short clips)
+    if (url.pathname === "/api/tts" && request.method === "GET") {
+      const text = String(url.searchParams.get("text") || "").trim().slice(0, 200);
+      const lang = String(url.searchParams.get("lang") || "en").slice(0, 10);
+      if (!text) return bad(request, "text required");
+      const targets = [
+        `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(text)}&type=2`,
+        `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${encodeURIComponent(lang)}&q=${encodeURIComponent(text)}`,
+      ];
+      let lastErr = "upstream failed";
+      for (const target of targets) {
+        try {
+          const up = await fetch(target, {
+            headers: {
+              "User-Agent":
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+              Accept: "audio/mpeg,audio/*;q=0.9,*/*;q=0.8",
+              Referer: target.includes("youdao") ? "https://www.youdao.com/" : "https://translate.google.com/",
+            },
+          });
+          if (!up.ok) {
+            lastErr = "upstream HTTP " + up.status;
+            continue;
+          }
+          const buf = await up.arrayBuffer();
+          if (!buf || buf.byteLength < 64) {
+            lastErr = "empty audio";
+            continue;
+          }
+          const ct = up.headers.get("Content-Type") || "audio/mpeg";
+          return new Response(buf, {
+            status: 200,
+            headers: {
+              "Content-Type": ct,
+              "Cache-Control": "public, max-age=604800",
+              ...corsHeaders(request),
+            },
+          });
+        } catch (e) {
+          lastErr = String(e && e.message ? e.message : e);
+        }
+      }
+      return bad(request, "TTS proxy failed: " + lastErr, 502);
+    }
+
+    if (!checkFamilySecret(request, env)) {
+      return bad(request, "Invalid or missing X-Family-Secret", 401);
+    }
+
+    // ee chat / tasks can work without KV for AI-only paths
+    if (url.pathname === "/api/ee/chat" && request.method === "POST") {
+      const body = await readJson(request);
+      if (!body) return bad(request, "Invalid JSON");
+      const messages = Array.isArray(body.messages) ? body.messages : [];
+      const learnerName = body.learnerName || "妹妹";
+      const result = await aiCoach(env, messages, learnerName);
       return json(
         {
           ok: true,
-          service: "kouyu-xiaozhan-worker",
-          version: 7,
-          sync: !!env.SYNC,
-          ai: !!(env.AI || env.OPENAI_API_KEY),
-          familySecretRequired: !!env.FAMILY_SECRET,
+          reply: result.reply,
+          engine: result.engine,
+          model: result.model || null,
+          aiError: result.aiError || null,
+          familyCode: normalizeFamilyCode(body.familyCode) || null,
         },
         200,
         request
       );
     }
 
-    if (!checkFamilySecret(request, env)) {
-      return bad(request, "Invalid or missing X-Family-Secret", 401);
+    if (url.pathname === "/api/ee/tasks/generate" && request.method === "POST") {
+      const body = (await readJson(request)) || {};
+      const seed = body.dateKey || body.seed || null;
+      const data = generateDailyTasks(seed);
+      return json({ ok: true, ...data }, 200, request);
     }
 
     if (!env.SYNC) {
@@ -443,77 +627,6 @@ export default {
         200,
         request
       );
-    }
-
-    if (url.pathname === "/api/ee/chat" && request.method === "POST") {
-      const body = await readJson(request);
-      if (!body) return bad(request, "Invalid JSON");
-      const messages = Array.isArray(body.messages) ? body.messages : [];
-      const learnerName = body.learnerName || "妹妹";
-      const { reply, engine } = await aiCoach(env, messages, learnerName);
-      return json(
-        {
-          ok: true,
-          reply,
-          engine,
-          familyCode: normalizeFamilyCode(body.familyCode) || null,
-        },
-        200,
-        request
-      );
-    }
-
-    if (url.pathname === "/api/ee/tasks/generate" && request.method === "POST") {
-      const body = (await readJson(request)) || {};
-      const seed = body.dateKey || body.seed || null;
-      const data = generateDailyTasks(seed);
-      return json({ ok: true, ...data }, 200, request);
-    }
-
-
-    // GET /api/tts?text=&lang=en — proxy short English clips (Youdao → Google) for CN mobile browsers
-    if (url.pathname === "/api/tts" && request.method === "GET") {
-      const text = String(url.searchParams.get("text") || "").trim().slice(0, 200);
-      const lang = String(url.searchParams.get("lang") || "en").slice(0, 10);
-      if (!text) return bad(request, "text required");
-      const targets = [
-        `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(text)}&type=2`,
-        `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${encodeURIComponent(lang)}&q=${encodeURIComponent(text)}`,
-      ];
-      let lastErr = "upstream failed";
-      for (const target of targets) {
-        try {
-          const up = await fetch(target, {
-            headers: {
-              "User-Agent":
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-              "Accept": "audio/mpeg,audio/*;q=0.9,*/*;q=0.8",
-              "Referer": target.includes("youdao") ? "https://www.youdao.com/" : "https://translate.google.com/",
-            },
-          });
-          if (!up.ok) {
-            lastErr = "upstream HTTP " + up.status;
-            continue;
-          }
-          const buf = await up.arrayBuffer();
-          if (!buf || buf.byteLength < 64) {
-            lastErr = "empty audio";
-            continue;
-          }
-          const ct = up.headers.get("Content-Type") || "audio/mpeg";
-          return new Response(buf, {
-            status: 200,
-            headers: {
-              "Content-Type": ct,
-              "Cache-Control": "public, max-age=86400",
-              ...corsHeaders(request),
-            },
-          });
-        } catch (e) {
-          lastErr = String(e && e.message ? e.message : e);
-        }
-      }
-      return bad(request, "TTS proxy failed: " + lastErr, 502);
     }
 
     return bad(request, "Not found", 404);

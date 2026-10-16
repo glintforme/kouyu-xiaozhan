@@ -1,4 +1,4 @@
-/* 口语小站 · 云同步 + ee API 客户端（Worker 已 live） */
+/* 口语小站 · 云同步 + ee API 客户端 v8（探活延迟 / 重试） */
 (function (global) {
   "use strict";
 
@@ -8,7 +8,7 @@
 
   function defaultCloud() {
     return {
-      version: 7,
+      version: 8,
       familyCode: "",
       apiBase: DEFAULT_API_BASE,
       syncEnabled: false,
@@ -31,7 +31,7 @@
       if (!normalizeBase(parsed.apiBase)) {
         merged.apiBase = DEFAULT_API_BASE;
       }
-      merged.version = 7;
+      merged.version = 8;
       return merged;
     } catch {
       return defaultCloud();
@@ -104,13 +104,37 @@
     return cfg;
   }
 
-  async function healthCheck() {
+  async function healthCheck(options) {
+    options = options || {};
     const cfg = loadCloud();
-    const base = normalizeBase(cfg.apiBase);
+    const base = normalizeBase(cfg.apiBase) || DEFAULT_API_BASE;
     if (!base) return { ok: false, error: "无 API Base" };
-    const res = await fetch(base + "/api/health", { headers: headers(cfg) });
-    if (!res.ok) throw new Error("健康检查失败 HTTP " + res.status);
-    return res.json();
+    const deep = !!options.deep;
+    const path = deep ? "/api/health?deep=1" : "/api/health";
+    const maxAttempts = options.retries != null ? options.retries : 2;
+    let lastErr = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const t0 = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+      try {
+        const res = await fetch(base + path, {
+          headers: headers(cfg),
+          cache: "no-store",
+        });
+        const ms = Math.round(((typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now()) - t0);
+        if (!res.ok) throw new Error("健康检查失败 HTTP " + res.status);
+        const data = await res.json();
+        data.latencyMs = ms;
+        data.attempt = attempt;
+        data.slow = ms >= 1500;
+        return data;
+      } catch (e) {
+        lastErr = e;
+        if (attempt < maxAttempts) {
+          await new Promise((r) => setTimeout(r, 400 * attempt));
+        }
+      }
+    }
+    throw lastErr || new Error("健康检查失败");
   }
 
   async function initFamily(adminPasswordHash) {
@@ -147,9 +171,29 @@
     const steps = [];
     let health = null;
     try {
-      health = await healthCheck();
+      health = await healthCheck({ retries: 2, deep: !!options.deep });
       if (!health || !health.ok) throw new Error("健康检查未通过");
-      steps.push("健康检查 ✓（sync=" + !!health.sync + " ai=" + !!health.ai + "）");
+      const lat = health.latencyMs != null ? health.latencyMs + "ms" : "?";
+      const slowNote = health.slow ? " · 偏慢" : "";
+      const aiNote = health.aiProbe
+        ? (health.aiProbe.ok ? " aiProbe✓" : " aiProbe✗")
+        : "";
+      steps.push(
+        "健康检查 ✓ " +
+          lat +
+          slowNote +
+          "（sync=" +
+          !!health.sync +
+          " ai=" +
+          !!health.ai +
+          " v=" +
+          (health.version || "?") +
+          aiNote +
+          "）"
+      );
+      if (health.slow) {
+        steps.push("提示：延迟偏高时可稍后重试；也可继续用本地导出/导入备用");
+      }
     } catch (e) {
       setStatus("连通失败", e.message || String(e));
       return {
@@ -320,6 +364,10 @@
     }
   }
 
+  async function probeLatency(options) {
+    return healthCheck(options || { retries: 2 });
+  }
+
   global.KouyuCloud = {
     CLOUD_KEY,
     DEFAULT_API_BASE,
@@ -330,6 +378,7 @@
     normalizeCode,
     isConfigured,
     healthCheck,
+    probeLatency,
     initFamily,
     oneClickConnect,
     pushSisterProgress,

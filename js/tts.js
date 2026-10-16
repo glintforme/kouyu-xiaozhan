@@ -1,13 +1,16 @@
-/* 口语小站 · 英文 TTS（Web Speech + 有道/Worker 回落，兼顾 Vivo/QQ 等国产浏览器） */
+/* 口语小站 · 英文 TTS v8（移动端默认在线美式；缓存短音频；首触解锁） */
 (function (global) {
   "use strict";
 
   const DEFAULT_API = "https://kouyu-xiaozhan-api.kncrty.workers.dev";
-  const MAX_CHUNK = 180; // Google/Youdao-ish safe chunk
+  const MAX_CHUNK = 180;
+  const CACHE_LIMIT = 48;
   let voicesReady = false;
   let cachedVoices = [];
   let currentAudio = null;
   let speaking = false;
+  let audioUnlocked = false;
+  const blobCache = new Map(); // key → objectURL
 
   function apiBase() {
     try {
@@ -21,6 +24,24 @@
       /* ignore */
     }
     return DEFAULT_API;
+  }
+
+  function isMobileLike() {
+    const ua = (navigator.userAgent || "").toLowerCase();
+    if (/android|iphone|ipad|ipod|mobile|micromessenger|mqqbrowser|vivo|iqoo|huawei|harmony|ucbrowser/.test(ua)) {
+      return true;
+    }
+    try {
+      if (navigator.maxTouchPoints > 1 && Math.min(screen.width, screen.height) <= 900) return true;
+    } catch {
+      /* ignore */
+    }
+    return false;
+  }
+
+  function isLikelyBrokenSpeechSynth() {
+    const ua = (navigator.userAgent || "").toLowerCase();
+    return /vivo|iqoo|mqqbrowser|qq\//.test(ua) || /micromessenger/.test(ua) || /ucbrowser|huawei|harmony/.test(ua);
   }
 
   function loadVoices() {
@@ -64,9 +85,7 @@
       } catch {
         /* ignore */
       }
-      // Some Android WebViews fire voices late or never
-      setTimeout(finish, 600);
-      // Kick chrome
+      setTimeout(finish, 500);
       try {
         loadVoices();
       } catch {
@@ -82,13 +101,12 @@
     if (lang.startsWith("en")) s += 10;
     if (lang === "en-us") s += 6;
     if (lang === "en-gb") s += 4;
-    // Prefer natural / neural-ish names
     if (/google/.test(name)) s += 12;
     if (/microsoft/.test(name) && /(aria|jenny|guy|sara|zira|natural|online)/.test(name)) s += 11;
     if (/samantha|karen|moira|daniel|alex|victoria|siri/.test(name)) s += 10;
     if (/enhanced|premium|neural|natural/.test(name)) s += 5;
     if (/compact|basic|espeak|robot/.test(name)) s -= 8;
-    if (v.localService === false) s += 2; // often cloud neural on desktop
+    if (v.localService === false) s += 2;
     return s;
   }
 
@@ -99,22 +117,22 @@
     return en[0];
   }
 
-  function isLikelyBrokenSpeechSynth() {
-    const ua = (navigator.userAgent || "").toLowerCase();
-    // Vivo / QQ / WeChat / UC / Huawei often expose speechSynthesis but silent or no en voices
-    return /vivo|iqoo|mqqbrowser|qq\//.test(ua) || /micromessenger/.test(ua) || /ucbrowser|huawei|harmony/.test(ua);
-  }
-
   function canUseWebSpeech(voices) {
     if (!global.speechSynthesis || typeof SpeechSynthesisUtterance === "undefined") return false;
     const en = pickBestEnglishVoice(voices);
     if (!en) return false;
-    // On known broken CN browsers, prefer audio fallback unless we clearly have Google/Microsoft
     if (isLikelyBrokenSpeechSynth()) {
       const n = (en.name || "").toLowerCase();
       if (!/google|microsoft|samantha|neural|natural/.test(n)) return false;
     }
     return true;
+  }
+
+  /** Prefer online US audio on mobile / CN WebViews for natural vocab pronunciation */
+  function preferOnlineAudio() {
+    if (isLikelyBrokenSpeechSynth()) return true;
+    if (isMobileLike()) return true;
+    return false;
   }
 
   function stopAll() {
@@ -127,7 +145,8 @@
     if (currentAudio) {
       try {
         currentAudio.pause();
-        currentAudio.src = "";
+        currentAudio.removeAttribute("src");
+        currentAudio.load();
       } catch {
         /* ignore */
       }
@@ -135,15 +154,72 @@
     }
   }
 
-  function playUrl(url) {
+  /** Unlock HTMLAudio on first user gesture (required on iOS / many Android WebViews) */
+  function unlockAudio() {
+    if (audioUnlocked) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      try {
+        const a = new Audio();
+        a.muted = true;
+        a.playsInline = true;
+        a.src =
+          "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYJbQCwAAAAAAD/+1DEAAAHAAGf9AAAIgAANP8AAAD/4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4AA==";
+        const p = a.play();
+        const done = () => {
+          audioUnlocked = true;
+          try {
+            a.pause();
+          } catch {
+            /* ignore */
+          }
+          resolve(true);
+        };
+        if (p && typeof p.then === "function") {
+          p.then(done).catch(() => {
+            audioUnlocked = true;
+            resolve(false);
+          });
+        } else {
+          done();
+        }
+      } catch {
+        audioUnlocked = true;
+        resolve(false);
+      }
+    });
+  }
+
+  function cachePut(key, objectUrl) {
+    if (blobCache.has(key)) {
+      try {
+        URL.revokeObjectURL(blobCache.get(key));
+      } catch {
+        /* ignore */
+      }
+    }
+    blobCache.set(key, objectUrl);
+    while (blobCache.size > CACHE_LIMIT) {
+      const first = blobCache.keys().next().value;
+      try {
+        URL.revokeObjectURL(blobCache.get(first));
+      } catch {
+        /* ignore */
+      }
+      blobCache.delete(first);
+    }
+  }
+
+  function playUrl(url, opts) {
+    opts = opts || {};
     return new Promise((resolve, reject) => {
       stopAll();
       const audio = new Audio();
       currentAudio = audio;
       speaking = true;
       audio.preload = "auto";
-      // Soften harsh mobile speakers a bit via playbackRate only (volume stays 1 for audibility)
-      audio.playbackRate = 1.0;
+      audio.playsInline = true;
+      // Slightly softer / less rushed for vocab words
+      audio.playbackRate = opts.rate != null ? opts.rate : 0.96;
       let settled = false;
       const done = (ok, err) => {
         if (settled) return;
@@ -163,8 +239,22 @@
     });
   }
 
+  async function fetchAndCache(url, cacheKey) {
+    if (blobCache.has(cacheKey)) {
+      return blobCache.get(cacheKey);
+    }
+    const res = await fetch(url, { mode: "cors", credentials: "omit" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const buf = await res.arrayBuffer();
+    if (!buf || buf.byteLength < 64) throw new Error("empty audio");
+    const ct = res.headers.get("Content-Type") || "audio/mpeg";
+    const blob = new Blob([buf], { type: ct });
+    const obj = URL.createObjectURL(blob);
+    cachePut(cacheKey, obj);
+    return obj;
+  }
+
   function youdaoUrl(text, type) {
-    // type 1 = UK, 2 = US — US usually clearer for learners
     return (
       "https://dict.youdao.com/dictvoice?audio=" +
       encodeURIComponent(text) +
@@ -224,7 +314,6 @@
       const u = new SpeechSynthesisUtterance(text);
       u.lang = opts.lang || voice.lang || "en-US";
       u.voice = voice;
-      // Softer defaults — less robotic / harsh
       u.rate = opts.rate != null ? opts.rate : 0.88;
       u.pitch = opts.pitch != null ? opts.pitch : 1.02;
       u.volume = opts.volume != null ? opts.volume : 1;
@@ -244,39 +333,60 @@
         finish(false, e);
         return;
       }
-      // Safety: some WebViews never fire onend/onerror
-      setTimeout(() => {
-        if (!finished && speaking) {
-          // assume playing; don't kill early for long sentences
-        }
-      }, 50);
-      // If still "speaking" with no events after long time relative to text length
       const ms = Math.min(30000, 1200 + text.length * 80);
       setTimeout(() => {
-        if (!finished) finish(true); // don't block UI forever
+        if (!finished) finish(true);
       }, ms);
     });
   }
 
   async function speakAudioFallback(text, opts) {
+    await unlockAudio();
     const lang = (opts.lang || "en-US").toLowerCase().startsWith("en-gb") ? "en" : "en";
     const chunks = splitChunks(text);
     let lastEngine = "audio";
     for (const chunk of chunks) {
       const short = chunk.length <= 80;
       const candidates = [];
-      // CN mobile: Youdao first for short clips (natural enough, reachable)
-      if (short) candidates.push({ engine: "youdao", url: youdaoUrl(chunk, 2) });
-      // Worker proxy (CORS-safe, can reach Google/Youdao server-side)
-      candidates.push({ engine: "worker", url: workerTtsUrl(chunk, lang) });
-      // Direct Google last (often blocked in CN / CORS)
-      if (short) candidates.push({ engine: "google", url: googleTtsUrl(chunk, lang) });
+      // CN mobile: Youdao US first for short clips (natural, reachable)
+      if (short) {
+        candidates.push({
+          engine: "youdao",
+          url: youdaoUrl(chunk, 2),
+          key: "yd2:" + chunk,
+          cache: true,
+        });
+      }
+      // Worker proxy (CORS-safe)
+      candidates.push({
+        engine: "worker",
+        url: workerTtsUrl(chunk, lang),
+        key: "wk:" + lang + ":" + chunk,
+        cache: true,
+      });
+      if (short) {
+        candidates.push({
+          engine: "google",
+          url: googleTtsUrl(chunk, lang),
+          key: "gg:" + chunk,
+          cache: false,
+        });
+      }
 
       let ok = false;
       let err;
       for (const c of candidates) {
         try {
-          await playUrl(c.url);
+          let playSrc = c.url;
+          if (c.cache) {
+            try {
+              playSrc = await fetchAndCache(c.url, c.key);
+            } catch (fetchErr) {
+              // fallback to direct play (may work for youdao without cors on some browsers)
+              playSrc = c.url;
+            }
+          }
+          await playUrl(playSrc, { rate: 0.96 });
           lastEngine = c.engine;
           ok = true;
           break;
@@ -290,8 +400,9 @@
   }
 
   /**
-   * Speak English text. Prefer natural Web Speech; fall back to Youdao/Worker audio.
-   * Always call from a user gesture on mobile.
+   * Speak English text.
+   * Mobile / CN browsers: online US audio first.
+   * Desktop Edge/Chrome: Web Speech first, then audio.
    */
   async function speak(text, opts) {
     opts = opts || {};
@@ -299,14 +410,15 @@
     if (!t) return { engine: "none" };
 
     const status = opts.onStatus;
-    if (opts.preferAudio || (isLikelyBrokenSpeechSynth() && !(await ensureVoices()).some((v) => /google|microsoft/i.test(v.name || "")))) {
-      if (status) status("在线发音加载中…");
+    const useAudioFirst = opts.preferAudio || preferOnlineAudio();
+
+    if (useAudioFirst) {
+      if (status) status("在线美式发音加载中…");
       try {
         const r = await speakAudioFallback(t, opts);
-        if (status) status("在线发音 · " + r.engine);
+        if (status) status("在线发音 · " + r.engine + "（可再点重播）");
         return r;
       } catch (e) {
-        // try webspeech as last resort
         if (status) status("尝试系统发音…");
         try {
           return await speakWebSpeech(t, opts);
@@ -335,7 +447,7 @@
     }
   }
 
-  // Warm voices early (non-blocking)
+  // Warm voices + unlock on first pointer/touch
   if (global.speechSynthesis) {
     try {
       ensureVoices();
@@ -349,12 +461,31 @@
     }
   }
 
+  function bindUnlockOnce() {
+    const once = () => {
+      unlockAudio();
+      document.removeEventListener("touchstart", once, true);
+      document.removeEventListener("pointerdown", once, true);
+      document.removeEventListener("click", once, true);
+    };
+    document.addEventListener("touchstart", once, { capture: true, passive: true });
+    document.addEventListener("pointerdown", once, { capture: true, passive: true });
+    document.addEventListener("click", once, { capture: true, passive: true });
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", bindUnlockOnce);
+  } else {
+    bindUnlockOnce();
+  }
+
   global.KouyuTTS = {
     speak,
     stop: stopAll,
+    unlockAudio,
     ensureVoices,
     pickBestEnglishVoice,
     isLikelyBrokenSpeechSynth,
+    preferOnlineAudio,
     youdaoUrl,
     workerTtsUrl,
   };

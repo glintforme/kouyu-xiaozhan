@@ -130,6 +130,18 @@
     const rateBar = document.getElementById("adm-task-rate-bar");
     if (rateBar) rateBar.style.width = `${rate}%`;
     set("adm-task-rate-label", total ? `今日任务完成率 ${rate}%` : "暂无任务");
+    const ring = document.getElementById("adm-task-ring");
+    if (ring) {
+      ring.style.setProperty("--pct", String(rate));
+      ring.setAttribute("data-pct", total ? rate + "%" : "—");
+      ring.classList.toggle("empty", !total);
+    }
+    const snapXp = document.getElementById("adm-snap-line");
+    if (snapXp) {
+      const chN = (state.challengeResults || []).length;
+      const badgeN = (state.rewards || []).length;
+      snapXp.textContent = `一屏速览：Lv.${state.level || 1} · ${state.xp || 0} XP · 🔥${state.streak || 0}天 · 任务 ${done}/${total}（${rate}%）· 测验 ${chN} 次 · 徽章 ${badgeN}`;
+    }
 
     const taskList = document.getElementById("adm-task-list");
     if (taskList) {
@@ -185,8 +197,20 @@
           Math.round(
             (challenges.reduce((s, c) => s + (c.ratio || 0), 0) / challenges.length) * 100
           ) || 0;
+        const chron = [...challenges].reverse().slice(-12); // oldest→newest for trend
+        const spark = chron.length
+          ? `<div class="adm-spark" aria-label="测验得分趋势">${chron
+              .map((c) => {
+                const pct = Math.round((c.ratio || 0) * 100);
+                const h = Math.max(8, Math.round((pct / 100) * 44));
+                const cls = c.passed ? "pass" : "fail";
+                return `<span class="adm-spark-bar ${cls}" style="height:${h}px" title="${pct}% · ${(c.at || "").slice(0, 10)}"></span>`;
+              })
+              .join("")}</div><p class="hint adm-spark-caption">得分趋势（近 ${chron.length} 次，左旧右新）</p>`
+          : "";
+        const ringPct = rate; // task completion already computed above — reuse for snapshot feel
         summaryEl.innerHTML =
-          `<div class="adm-ch-summary-head">共 ${challenges.length} 次测验 · 平均得分 <strong>${avg}%</strong></div><div class="adm-ch-grid">${chips}</div>`;
+          `<div class="adm-ch-summary-head">共 ${challenges.length} 次测验 · 平均得分 <strong>${avg}%</strong></div><div class="adm-ch-grid">${chips}</div>${spark}`;
       }
     }
     if (chEl) {
