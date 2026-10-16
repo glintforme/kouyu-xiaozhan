@@ -1,4 +1,4 @@
-/* 口语小站 · 游戏化：XP / 等级 / ee 任务 / 挑战测验 / 奖励 · v5 */
+/* 口语小站 · 游戏化：XP / 等级 / ee 任务 / 挑战测验 / 奖励 · v6 */
 (function (global) {
   "use strict";
 
@@ -126,10 +126,31 @@
   }
 
   async function fetchEeTasks() {
+    // Prefer KouyuCloud helper when API Base is set
+    if (global.KouyuCloud) {
+      const cfg = global.KouyuCloud.loadCloud();
+      if (global.KouyuCloud.normalizeBase(cfg.apiBase)) {
+        try {
+          const data = await global.KouyuCloud.eeGenerateTasks();
+          if (data && Array.isArray(data.tasks)) return data.tasks;
+        } catch (e) {
+          console.warn("[ee] cloud tasks failed, fallback local", e);
+        }
+      }
+    }
     if (EE_CONFIG.mode === "api" && EE_CONFIG.apiEndpoint) {
       try {
-        const res = await fetch(EE_CONFIG.apiEndpoint);
-        if (res.ok) return await res.json();
+        const res = await fetch(EE_CONFIG.apiEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.tasks)) return data.tasks;
+          if (Array.isArray(data)) return data;
+          return data;
+        }
       } catch (e) {
         console.warn("[ee stub] API failed, fallback local-auto", e);
       }
@@ -137,19 +158,45 @@
     return null;
   }
 
-  function ensureEeDailyTasks(state) {
+  function ensureEeDailyTasks(state, remoteTasks) {
     const key = todayKey();
     if (state.lastEeDailyKey === key) return state;
-    const daySeed = parseInt(key.replace(/-/g, ""), 10) || 0;
-    const templates = eeDailyTemplates(daySeed);
-    const daily = templates.map((t, i) =>
-      makeTask({ id: `ee-daily-${key}-${i}`, ...t, createdAt: new Date().toISOString() }, "ee")
-    );
+    let daily;
+    if (Array.isArray(remoteTasks) && remoteTasks.length) {
+      daily = remoteTasks.map((t, i) =>
+        makeTask(
+          {
+            id: t.id || `ee-daily-${key}-${i}`,
+            title: t.title,
+            type: t.type,
+            link: t.link,
+            xp: t.xp,
+            module: t.module,
+            note: t.note || "",
+            createdAt: t.createdAt || new Date().toISOString(),
+          },
+          "ee"
+        )
+      );
+    } else {
+      const daySeed = parseInt(key.replace(/-/g, ""), 10) || 0;
+      const templates = eeDailyTemplates(daySeed);
+      daily = templates.map((t, i) =>
+        makeTask({ id: `ee-daily-${key}-${i}`, ...t, createdAt: new Date().toISOString() }, "ee")
+      );
+    }
     const keep = (state.gameTasks || []).filter((t) => t.source === "brother" && !t.done);
     state.gameTasks = [...daily, ...keep];
     state.lastEeDailyKey = key;
     state.tasks = { pronounce: false, shadow: false, input: false, output: false };
     return state;
+  }
+
+  async function refreshEeDailyFromCloud(state) {
+    const key = todayKey();
+    if (state.lastEeDailyKey === key) return state;
+    const remote = await fetchEeTasks();
+    return ensureEeDailyTasks(state, remote);
   }
 
   function ensureEeWeeklyChallengeHint(state) {
@@ -452,6 +499,7 @@
     gradeQuizItems,
     recordChallenge,
     fetchEeTasks,
+    refreshEeDailyFromCloud,
     makeTask,
     quizBankCounts,
     QUIZ_BANK,

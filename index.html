@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#e07a5f" />
   <meta name="description" content="口语小站：妹妹免登录学英语打卡升级；哥哥管理端看进度发任务；ee 自动每日任务" />
-  <title>口语小站 · 任务升级练口语 v5</title>
-  <link rel="stylesheet" href="css/styles.css?v=5" />
+  <title>口语小站 · 任务升级练口语 v6</title>
+  <link rel="stylesheet" href="css/styles.css?v=6" />
 </head>
 <body>
   <!-- ========== 学习端（妹妹，免登录） ========== -->
@@ -57,15 +57,33 @@
           </div>
         </div>
 
+        <div class="card" id="cloud-settings-card">
+          <h3>☁️ 云同步设置 <span class="badge-soft">需部署 Worker</span></h3>
+          <p class="hint warn-box" id="cloud-honesty">⚠️ <strong>云同步需先部署 Cloudflare Worker。</strong>未配置 API Base 前，本站仍可本地使用；继续用下方「导出 / 导入」即可。Worker 未上线时请勿以为进度已上云。</p>
+          <label class="field-label">家庭同步码（兄妹约定，至少 4 位字母数字）</label>
+          <input id="cloud-family-code" class="field-input" placeholder="例如 kncre-mei-01" autocomplete="off" />
+          <label class="field-label">API Base（Worker 地址，不要末尾 /）</label>
+          <input id="cloud-api-base" class="field-input" placeholder="部署后填 https://kouyu-xiaozhan-api.xxx.workers.dev" autocomplete="off" />
+          <label class="field-label">可选 · Family Secret（若 Worker 设置了 FAMILY_SECRET）</label>
+          <input id="cloud-family-secret" class="field-input" type="password" placeholder="通常留空" autocomplete="off" />
+          <label class="check-row"><input type="checkbox" id="cloud-sync-enabled" /> 启用云同步（妹妹进度防抖自动推送）</label>
+          <div class="btn-row" style="margin-top:10px;">
+            <button type="button" id="btn-cloud-save" class="btn btn-primary">保存设置</button>
+            <button type="button" id="btn-cloud-test" class="btn btn-secondary">测试连接</button>
+            <button type="button" id="btn-cloud-push-now" class="btn btn-ghost">立即推送</button>
+          </div>
+          <p id="cloud-sync-status" class="status-toast cloud-status">状态：未配置 · 上次同步：—</p>
+        </div>
+
         <div class="card">
-          <h3>📤 同步给哥哥看进度</h3>
-          <p class="hint">静态网站<strong>不能</strong>自动跨手机同步。请导出同步包发给哥哥，他在管理端导入即可观看。</p>
+          <h3>📤 本地导出 / 导入 <span class="badge-soft">始终可用</span></h3>
+          <p class="hint">云同步未就绪时的备用方案：导出同步包发给哥哥，他在管理端导入。</p>
           <div class="btn-row">
             <button type="button" id="btn-export-sync" class="btn btn-primary">📤 导出同步码 / 进度</button>
             <button type="button" id="btn-import-profile" class="btn btn-secondary">📥 导入备份</button>
             <input id="import-file-input" type="file" accept="application/json,.json" hidden />
           </div>
-          <p class="hint backup-tip">💡 数据只存在本机浏览器。换设备：导出 → 传到新手机 → 导入。</p>
+          <p class="hint backup-tip">💡 本机数据在浏览器 localStorage。换设备请导出再导入。</p>
         </div>
 
         <div class="card">
@@ -98,7 +116,7 @@
             <button type="button" class="btn btn-ghost" data-go="#chat">找教练 ee</button>
           </div>
         </div>
-        <p class="footer-note">妹妹免登录直接学 · 哥哥点右上角「管理」（需密码）· 家庭演示 · 暂未给妹妹正式使用</p>
+        <p class="footer-note">妹妹免登录 · 哥哥管理需密码 · 云同步需 Worker（未部署则本地仍可用）· 暂未正式交给妹妹</p>
       </section>
 
       <!-- 进度 / 徽章 -->
@@ -196,7 +214,7 @@
       <!-- 对话 -->
       <section id="page-chat" class="page">
         <h2 class="section-title">对话练习 · 教练 ee</h2>
-        <p class="hint page-lead">预设温和纠正（关键词带中文释义）。发一句英文可完成「开口」任务。</p>
+        <p class="hint page-lead">已配置 API Base 时走云端 ee；否则用本地教练（关键词纠错 + 中文释义）。发一句英文可完成「开口」任务。<span id="chat-engine-badge" class="badge-soft">本地 ee</span></p>
         <div class="chat-shell">
           <div id="chat-log" class="chat-log">
             <div class="bubble bot">
@@ -399,8 +417,18 @@
         </div>
 
         <div class="card">
-          <h3>📥 导入妹妹进度（跨设备）</h3>
-          <p class="hint">同一手机可直接看本机妹妹档案；不同设备请让她导出同步包后你在此导入。</p>
+          <h3>☁️ 云端拉取妹妹进度</h3>
+          <p class="hint">需已在学习端保存同一家庭同步码 + API Base，并完成「初始化家庭房间」。Worker 未部署时此功能不可用。</p>
+          <div class="btn-row">
+            <button type="button" id="btn-cloud-init-family" class="btn btn-secondary">初始化家庭房间</button>
+            <button type="button" id="btn-cloud-pull" class="btn btn-primary">从云端拉取</button>
+          </div>
+          <p id="adm-cloud-status" class="status-toast">云端：—</p>
+        </div>
+
+        <div class="card">
+          <h3>📥 导入妹妹进度（跨设备备用）</h3>
+          <p class="hint">同一手机可直接看本机妹妹档案；不同设备仍可用导出 JSON。云同步就绪后可少用此项。</p>
           <button type="button" id="btn-import-sister" class="btn btn-secondary">导入她的进度 JSON</button>
           <input id="adm-import-file" type="file" accept="application/json,.json" hidden />
         </div>
@@ -435,9 +463,10 @@
   </div>
   <div id="app-toast" class="app-toast" role="status" aria-live="polite"></div>
 
-  <script src="js/storage.js?v=5"></script>
-  <script src="js/game.js?v=5"></script>
-  <script src="js/admin.js?v=5"></script>
-  <script src="js/app.js?v=5"></script>
+  <script src="js/storage.js?v=6"></script>
+  <script src="js/cloud.js?v=6"></script>
+  <script src="js/game.js?v=6"></script>
+  <script src="js/admin.js?v=6"></script>
+  <script src="js/app.js?v=6"></script>
 </body>
 </html>

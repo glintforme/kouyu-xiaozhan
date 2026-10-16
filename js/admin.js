@@ -39,16 +39,24 @@
     const St = S();
     const admin = St.loadAdmin();
     const live = St.loadProfileState(St.SISTER_ID);
-    // Prefer live if it has activity; else imported snapshot
+    const snap = admin.importedSisterSnapshot;
     const liveActive = (live.xp || 0) > 0 || (live.gameTasks || []).some((t) => t.done) || live.lastCheckInDate;
+    // If snapshot came from cloud and is newer by exportedAt, prefer it for display when brother is on another device
+    if (snap && snap.state && snap.fromCloud) {
+      const label =
+        "云端拉取（" + (snap.exportedAt || "").slice(0, 19).replace("T", " ") + "）";
+      // Same device with live activity: still show live, note cloud available
+      if (liveActive) return { state: live, source: "本机妹妹档案（实时；亦可云端拉取）" };
+      return { state: St.normalizeState(snap.state), source: label };
+    }
     if (liveActive) return { state: live, source: "本机妹妹档案（实时）" };
-    if (admin.importedSisterSnapshot && admin.importedSisterSnapshot.state) {
+    if (snap && snap.state) {
       return {
-        state: St.normalizeState(admin.importedSisterSnapshot.state),
-        source: "已导入的同步包（" + (admin.importedSisterSnapshot.exportedAt || "").slice(0, 16) + "）",
+        state: St.normalizeState(snap.state),
+        source: "已导入的同步包（" + (snap.exportedAt || "").slice(0, 16) + "）",
       };
     }
-    return { state: live, source: "本机妹妹档案（暂无学习记录时可导入同步包）" };
+    return { state: live, source: "本机妹妹档案（暂无学习记录时可导入同步包 / 云端拉取）" };
   }
 
   function showAdminLogin() {
@@ -308,6 +316,95 @@
     document.getElementById("btn-refresh-adm")?.addEventListener("click", () => {
       renderDashboard();
       toast("已刷新妹妹进度");
+    });
+
+    function setAdmCloudStatus(msg) {
+      const el = document.getElementById("adm-cloud-status");
+      if (el) el.textContent = msg;
+    }
+
+    document.getElementById("btn-cloud-init-family")?.addEventListener("click", async () => {
+      const Cloud = global.KouyuCloud;
+      if (!Cloud) {
+        toast("云模块未加载");
+        return;
+      }
+      const cfg = Cloud.loadCloud();
+      if (!Cloud.normalizeBase(cfg.apiBase) || Cloud.normalizeCode(cfg.familyCode).length < 4) {
+        toast("请先在学习端首页填写并保存：家庭同步码 + API Base");
+        setAdmCloudStatus("云端：未配置同步码或 API Base");
+        return;
+      }
+      const admin = S().loadAdmin();
+      if (!admin.setupDone || !admin.passwordHash) {
+        toast("请先设置管理密码，再用同一哈希初始化家庭房间");
+        return;
+      }
+      try {
+        setAdmCloudStatus("云端：初始化中…");
+        const data = await Cloud.initFamily(admin.passwordHash);
+        setAdmCloudStatus(
+          data.created
+            ? "云端：家庭房间已创建"
+            : data.reused
+              ? "云端：家庭房间已存在（复用）"
+              : "云端：家庭房间就绪"
+        );
+        toast("家庭房间已就绪");
+      } catch (e) {
+        setAdmCloudStatus("云端：初始化失败 · " + (e.message || e));
+        toast("初始化失败：" + (e.message || e) + "（Worker 未部署时属正常）");
+      }
+    });
+
+    document.getElementById("btn-cloud-pull")?.addEventListener("click", async () => {
+      const Cloud = global.KouyuCloud;
+      if (!Cloud) {
+        toast("云模块未加载");
+        return;
+      }
+      const cfg = Cloud.loadCloud();
+      if (!Cloud.normalizeBase(cfg.apiBase) || Cloud.normalizeCode(cfg.familyCode).length < 4) {
+        toast("请先在学习端保存家庭同步码 + API Base");
+        return;
+      }
+      const admin = S().loadAdmin();
+      if (!admin.passwordHash) {
+        toast("缺少管理密码哈希，请先设置管理密码");
+        return;
+      }
+      try {
+        setAdmCloudStatus("云端：拉取中…");
+        const data = await Cloud.pullSisterProgress(admin.passwordHash);
+        if (data.empty || !data.payload) {
+          setAdmCloudStatus("云端：暂无妹妹数据（等她开启同步并学习后推送）");
+          toast("云端暂无妹妹进度");
+          return;
+        }
+        const payload = data.payload;
+        const stateObj = payload.state || payload;
+        admin.importedSisterSnapshot = {
+          exportedAt: data.updatedAt || payload.exportedAt || new Date().toISOString(),
+          profile: payload.profile || null,
+          state: stateObj,
+          fromCloud: true,
+        };
+        S().saveAdmin(admin);
+        const writeLive = window.confirm(
+          "已从云端拉取妹妹进度。\n\n【确定】写入本机「妹妹」档案（覆盖）\n【取消】只在管理端看板查看"
+        );
+        if (writeLive) {
+          S().saveProfileState(S().SISTER_ID, S().normalizeState(stateObj));
+        }
+        renderDashboard();
+        setAdmCloudStatus(
+          "云端：已拉取 · " + Cloud.formatSyncTime(data.updatedAt || admin.importedSisterSnapshot.exportedAt)
+        );
+        toast(writeLive ? "云端进度已写入本机妹妹档案" : "云端进度已导入管理端快照");
+      } catch (e) {
+        setAdmCloudStatus("云端：拉取失败 · " + (e.message || e));
+        toast("拉取失败：" + (e.message || e));
+      }
     });
   }
 

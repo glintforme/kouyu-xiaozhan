@@ -1,0 +1,29 @@
+# 口语小站 · Cloudflare Worker 配置模板
+# 部署前：把下面 kv_namespaces id 换成你在 Cloudflare 控制台创建的 KV id
+# 云同步在 Worker 部署成功之前不可用（GitHub Pages 前端可先配置，会提示未就绪）
+
+name = "kouyu-xiaozhan-api"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+# 可选：自定义 workers.dev 子域；部署后得到 https://kouyu-xiaozhan-api.<account>.workers.dev
+# workers_dev = true
+
+[[kv_namespaces]]
+binding = "SYNC"
+# 创建 KV 后填入真实 id，例如：
+# id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+preview_id = "REPLACE_WITH_PREVIEW_KV_ID"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+# 可选：Workers AI（真实 ee 大模型）
+# [ai]
+# binding = "AI"
+
+# 可选密钥（用 wrangler secret put，不要写进 git）
+# FAMILY_SECRET — 前端请求头 X-Family-Secret
+# OPENAI_API_KEY — 若不用 Workers AI，可接 OpenAI 兼容接口
+# OPENAI_MODEL — 默认 gpt-4o-mini
+
+# [vars]
+# OPENAI_MODEL = "gpt-4o-mini"

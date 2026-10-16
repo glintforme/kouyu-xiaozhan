@@ -1466,3 +1466,34 @@ body.mode-admin .xp-hud { display: none; }
   .more-sheet { align-items: center; }
   .more-sheet-inner { border-radius: 16px; padding-bottom: 20px; }
 }
+
+
+/* —— v6 云同步设置 —— */
+#cloud-settings-card .check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 0.92rem;
+  color: var(--text, #2b2d42);
+  cursor: pointer;
+}
+#cloud-settings-card .check-row input {
+  width: 18px;
+  height: 18px;
+}
+.cloud-status {
+  margin-top: 10px;
+  font-size: 0.85rem;
+  color: var(--muted, #6c757d);
+}
+.warn-box {
+  background: #fff4e8;
+  border: 1px solid #f0c9a0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+#chat-engine-badge {
+  margin-left: 4px;
+}

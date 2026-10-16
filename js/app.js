@@ -1,10 +1,11 @@
-/* 口语小站 · 学习端主逻辑 v5 · 游戏化 + 妹妹档案 */
+/* 口语小站 · 学习端主逻辑 v6 · 云同步 + ee API */
 (function () {
   "use strict";
 
   const St = window.KouyuStorage;
   const Gm = window.KouyuGame;
   const Ad = window.KouyuAdmin;
+  const Cloud = window.KouyuCloud;
 
   St.migrateLegacyIfNeeded();
   let meta = St.loadMeta();
@@ -20,13 +21,121 @@
 
   let state = St.loadProfileState(St.SISTER_ID);
 
+  function sisterSyncPayload() {
+    const profile = meta.profiles.find((p) => p.id === St.SISTER_ID) || {
+      id: St.SISTER_ID,
+      name: "妹妹",
+      emoji: "👧",
+      role: "learner",
+    };
+    return St.exportSisterPayload(profile, state);
+  }
+
   function persist() {
     St.saveProfileState(St.SISTER_ID, state);
     St.saveMeta(meta);
+    if (Cloud && Cloud.isConfigured()) {
+      Cloud.schedulePush(() => sisterSyncPayload());
+    }
   }
 
-  function refreshGameTasks() {
-    state = Gm.ensureEeDailyTasks(state);
+  function renderCloudStatus() {
+    if (!Cloud) return;
+    const cfg = Cloud.loadCloud();
+    const el = document.getElementById("cloud-sync-status");
+    if (el) {
+      const when = Cloud.formatSyncTime(cfg.lastSyncAt);
+      const err = cfg.lastSyncError ? ` · ${cfg.lastSyncError}` : "";
+      const on = cfg.syncEnabled && cfg.apiBase ? "开" : "关";
+      el.textContent = `状态：${cfg.lastSyncStatus || "未配置"}（云同步 ${on}）· 上次同步：${when}${err}`;
+    }
+    const badge = document.getElementById("chat-engine-badge");
+    if (badge) {
+      badge.textContent = Cloud.normalizeBase(cfg.apiBase) ? "云端 ee（可回落本地）" : "本地 ee";
+    }
+  }
+
+  function bindCloudSettings() {
+    if (!Cloud) return;
+    const cfg = Cloud.loadCloud();
+    const codeEl = document.getElementById("cloud-family-code");
+    const baseEl = document.getElementById("cloud-api-base");
+    const secEl = document.getElementById("cloud-family-secret");
+    const enEl = document.getElementById("cloud-sync-enabled");
+    if (codeEl) codeEl.value = cfg.familyCode || "";
+    if (baseEl) baseEl.value = cfg.apiBase || "";
+    if (secEl) secEl.value = cfg.familySecret || "";
+    if (enEl) enEl.checked = !!cfg.syncEnabled;
+    renderCloudStatus();
+
+    document.getElementById("btn-cloud-save")?.addEventListener("click", () => {
+      const next = Cloud.loadCloud();
+      next.familyCode = Cloud.normalizeCode(codeEl?.value || "");
+      next.apiBase = Cloud.normalizeBase(baseEl?.value || "");
+      next.familySecret = (secEl?.value || "").trim();
+      next.syncEnabled = !!enEl?.checked;
+      if (next.syncEnabled && (!next.apiBase || next.familyCode.length < 4)) {
+        toast("启用云同步需要：家庭同步码（≥4）+ API Base（Worker 地址）");
+        return;
+      }
+      if (!next.apiBase) {
+        next.lastSyncStatus = "未配置（本地模式）";
+      } else if (!next.syncEnabled) {
+        next.lastSyncStatus = "已填 API，未启用推送";
+      } else {
+        next.lastSyncStatus = "已启用，等待推送";
+      }
+      Cloud.saveCloud(next);
+      // Keep game EE_CONFIG in sync for task fetch
+      if (Gm.EE_CONFIG) {
+        Gm.EE_CONFIG.apiEndpoint = next.apiBase ? next.apiBase + "/api/ee/tasks/generate" : null;
+        Gm.EE_CONFIG.mode = next.apiBase ? "api" : "local-auto";
+      }
+      renderCloudStatus();
+      toast(next.apiBase ? "云同步设置已保存（Worker 未部署则测试会失败）" : "已保存：当前为本地模式");
+    });
+
+    document.getElementById("btn-cloud-test")?.addEventListener("click", async () => {
+      // save fields first
+      document.getElementById("btn-cloud-save")?.click();
+      const c = Cloud.loadCloud();
+      if (!c.apiBase) {
+        toast("请先填写 API Base（部署 Worker 后才有地址）");
+        return;
+      }
+      try {
+        const h = await Cloud.healthCheck();
+        toast(h.ok ? `连接成功 · sync=${!!h.sync} ai=${!!h.ai}` : "连接异常");
+        Cloud.setStatus(h.ok ? "连接正常" : "连接异常");
+        renderCloudStatus();
+      } catch (e) {
+        toast("连接失败：" + (e.message || e) + "（若尚未部署 Worker 属正常）");
+        Cloud.setStatus("连接失败", e.message || String(e));
+        renderCloudStatus();
+      }
+    });
+
+    document.getElementById("btn-cloud-push-now")?.addEventListener("click", async () => {
+      document.getElementById("btn-cloud-save")?.click();
+      if (!Cloud.isConfigured()) {
+        toast("请先启用云同步并填写同步码 + API Base");
+        return;
+      }
+      try {
+        await Cloud.pushSisterProgress(sisterSyncPayload());
+        toast("已推送到云端");
+        renderCloudStatus();
+      } catch (e) {
+        toast("推送失败：" + (e.message || e));
+        renderCloudStatus();
+      }
+    });
+
+    window.addEventListener("kouyu-cloud-status", () => renderCloudStatus());
+  }
+
+  function refreshGameTasks(remoteTasks) {
+    state = Gm.ensureEeDailyTasks(state, remoteTasks);
     state = Gm.ensureEeWeeklyChallengeHint(state);
     const admin = St.loadAdmin();
     state = Gm.mergeBrotherPublishedTasks(state, admin.publishedTasks || []);
@@ -35,6 +144,22 @@
   }
 
   refreshGameTasks();
+  // If API Base set, try replace today's ee tasks from Worker (once per day key)
+  (async () => {
+    try {
+      if (!Cloud || !Cloud.normalizeBase(Cloud.loadCloud().apiBase)) return;
+      if (state.lastEeDailyKey === Gm.todayKey()) return;
+      const remote = await Gm.fetchEeTasks();
+      if (remote && remote.length) {
+        state.lastEeDailyKey = null; // allow rebuild
+        refreshGameTasks(remote);
+        renderGameTasks();
+        renderHud();
+      }
+    } catch (e) {
+      console.warn("cloud ee tasks skip", e);
+    }
+  })();
 
   function toast(msg) {
     const el = document.getElementById("app-toast");
@@ -744,16 +869,39 @@
     return defaultCoachReply;
   }
 
-  function sendChat(text) {
+  const chatHistory = [];
+
+  async function sendChat(text) {
     const trimmed = (text || "").trim();
     if (!trimmed) return;
     appendBubble("user", trimmed);
+    chatHistory.push({ role: "user", content: trimmed });
     state.tasks.output = true;
     persist();
-    setTimeout(() => {
-      appendBubble("bot", coachReply(trimmed));
-      claimModule("chat", { silent: true });  // only toast when XP actually gained
-    }, 400);
+
+    let reply = null;
+    const cfg = Cloud ? Cloud.loadCloud() : null;
+    if (cfg && Cloud.normalizeBase(cfg.apiBase)) {
+      appendBubble("bot", "教练 ee 思考中…");
+      const thinking = document.getElementById("chat-log")?.lastElementChild;
+      try {
+        const data = await Cloud.eeChat(chatHistory.slice(-12), "妹妹");
+        if (data && data.reply) {
+          reply = data.reply;
+          if (data.engine && data.engine !== "rules") {
+            reply += `\n\n（引擎：${data.engine}）`;
+          }
+        }
+      } catch {
+        reply = null;
+      }
+      if (thinking) thinking.remove();
+    }
+
+    if (!reply) reply = coachReply(trimmed);
+    chatHistory.push({ role: "assistant", content: reply });
+    appendBubble("bot", reply);
+    claimModule("chat", { silent: true });
   }
 
   document.getElementById("chat-form")?.addEventListener("submit", (e) => {
@@ -1176,6 +1324,14 @@
 
   // —— Init ——
   Ad.bindAdmin();
+  bindCloudSettings();
+  if (Cloud && Gm.EE_CONFIG) {
+    const c = Cloud.loadCloud();
+    if (Cloud.normalizeBase(c.apiBase)) {
+      Gm.EE_CONFIG.apiEndpoint = c.apiBase.replace(/\/+$/, "") + "/api/ee/tasks/generate";
+      Gm.EE_CONFIG.mode = "api";
+    }
+  }
   renderPronounceChips();
   updatePronouncePanel();
   renderLesson();
