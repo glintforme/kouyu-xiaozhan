@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#e07a5f" />
   <meta name="description" content="口语小站：妹妹免登录学英语打卡升级；哥哥管理端看进度发任务；ee 自动每日任务" />
   <title>口语小站 · 任务升级练口语 v8</title>
-  <link rel="stylesheet" href="css/styles.css?v=9" />
+  <link rel="stylesheet" href="css/styles.css?v=10" />
 </head>
 <body>
   <!-- ========== 学习端（妹妹，免登录） ========== -->
@@ -222,7 +222,7 @@
       <!-- 对话 -->
       <section id="page-chat" class="page">
         <h2 class="section-title">对话练习 · 教练 ee</h2>
-        <p class="hint page-lead">已配置 API Base 时走云端 ee；否则用本地教练（关键词纠错 + 中文释义）。发一句英文可完成「开口」任务。<span id="chat-engine-badge" class="badge-soft">本地 ee</span></p>
+        <p class="hint page-lead">打字或<strong>按住说话</strong>跟教练 ee 练口语。云端 ee 优先；语音在 Chrome/Edge 用本机识别，Vivo/QQ 等走云端 Whisper。发一句英文可完成「开口」任务。<span id="chat-engine-badge" class="badge-soft">本地 ee</span></p>
         <div class="chat-shell">
           <div id="chat-log" class="chat-log">
             <div class="bubble bot">
@@ -242,8 +242,22 @@
             <button type="button" data-quick="My hobby is reading novels">爱好 hobby</button>
             <button type="button" data-quick="Thank you for your help!">Thank you</button>
           </div>
+          <div class="voice-chat-bar" id="voice-chat-bar">
+            <button type="button" id="btn-voice-hold" class="btn-voice-hold" aria-label="按住说话给 ee">
+              <span class="voice-hold-ico" aria-hidden="true">🎤</span>
+              <span class="voice-hold-label" id="voice-hold-label">按住 说话给 ee</span>
+            </button>
+            <div class="voice-chat-meta">
+              <label class="voice-auto-speak">
+                <input type="checkbox" id="chk-auto-speak" checked />
+                ee 回复自动朗读英文
+              </label>
+              <p id="voice-status" class="voice-status" role="status">松手后识别并发送；也可打字。</p>
+            </div>
+          </div>
           <form id="chat-form" class="chat-input-bar">
             <input id="chat-input" type="text" placeholder="用英文写一句…" autocomplete="off" />
+            <button type="button" id="btn-speak-last" class="btn btn-ghost" title="朗读 ee 上一条英文">🔊</button>
             <button type="submit" class="btn btn-primary">发送</button>
           </form>
         </div>
@@ -486,11 +500,12 @@
   </div>
   <div id="app-toast" class="app-toast" role="status" aria-live="polite"></div>
 
-  <script src="js/tts.js?v=9"></script>
-  <script src="js/storage.js?v=9"></script>
-  <script src="js/cloud.js?v=9"></script>
-  <script src="js/game.js?v=9"></script>
-  <script src="js/admin.js?v=9"></script>
-  <script src="js/app.js?v=9"></script>
+  <script src="js/tts.js?v=10"></script>
+  <script src="js/voice.js?v=10"></script>
+  <script src="js/storage.js?v=10"></script>
+  <script src="js/cloud.js?v=10"></script>
+  <script src="js/game.js?v=10"></script>
+  <script src="js/admin.js?v=10"></script>
+  <script src="js/app.js?v=10"></script>
 </body>
 </html>

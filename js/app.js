@@ -1,4 +1,4 @@
-/* 口语小站 · 学习端主逻辑 v9 · 手机发音 / 下一步 / 探活 */
+/* 口语小站 · 学习端主逻辑 v10 · 手机发音 / 下一步 / 探活 */
 (function () {
   "use strict";
 
@@ -1016,14 +1016,61 @@
   ];
   const defaultCoachReply = "教练 ee：收到！试着写完整句子，例如：\n\"Yesterday I went to the library.\"\n\n📌 library — 图书馆 · yesterday — 昨天";
 
-  function appendBubble(who, text) {
+  let lastEeReply = "";
+  let voiceBusy = false;
+
+  function setVoiceStatus(msg) {
+    const el = document.getElementById("voice-status");
+    if (el) el.textContent = msg || "";
+  }
+
+  function autoSpeakEnabled() {
+    const el = document.getElementById("chk-auto-speak");
+    return !el || el.checked;
+  }
+
+  async function speakEeReply(reply, opts) {
+    opts = opts || {};
+    const Voice = window.KouyuVoice;
+    const TTS = window.KouyuTTS;
+    if (!TTS || typeof TTS.speak !== "function") return;
+    const en = Voice && Voice.englishForSpeak ? Voice.englishForSpeak(reply) : "";
+    const text = en || String(reply || "").replace(/[\u4e00-\u9fff]/g, " ").replace(/\s+/g, " ").trim();
+    if (!text || text.length < 3) {
+      if (opts.force) toast("这条回复里几乎没有可朗读的英文");
+      return;
+    }
+    try {
+      if (TTS.unlockAudio) await TTS.unlockAudio();
+      setVoiceStatus(opts.status || "ee 朗读中…");
+      await TTS.speak(text, {
+        preferAudio: true,
+        onStatus: (s) => setVoiceStatus(s),
+      });
+    } catch (e) {
+      setVoiceStatus("朗读失败，可点气泡里的 🔊 重试");
+    }
+  }
+
+  function appendBubble(who, text, options) {
+    options = options || {};
     const log = document.getElementById("chat-log");
-    if (!log) return;
+    if (!log) return null;
     const div = document.createElement("div");
     div.className = `bubble ${who}`;
-    div.innerHTML = `<div class="who">${who === "bot" ? "教练 ee" : "妹妹"}</div>${escapeHtml(text)}`;
+    let extra = "";
+    if (who === "bot" && options.speakable !== false && text && !/思考中/.test(text)) {
+      extra =
+        `<div class="bubble-actions"><button type="button" class="btn-speak-bubble" data-speak-en="1">🔊 听英文</button></div>`;
+    }
+    div.innerHTML = `<div class="who">${who === "bot" ? "教练 ee" : "妹妹"}</div>${escapeHtml(text)}${extra}`;
+    const btn = div.querySelector("[data-speak-en]");
+    if (btn) {
+      btn.addEventListener("click", () => speakEeReply(text, { force: true }));
+    }
     log.appendChild(div);
     log.scrollTop = log.scrollHeight;
+    return div;
   }
 
   function coachReply(userText) {
@@ -1035,7 +1082,8 @@
 
   const chatHistory = [];
 
-  async function sendChat(text) {
+  async function sendChat(text, options) {
+    options = options || {};
     const trimmed = (text || "").trim();
     if (!trimmed) return;
     appendBubble("user", trimmed);
@@ -1046,7 +1094,7 @@
     let reply = null;
     const cfg = Cloud ? Cloud.loadCloud() : null;
     if (cfg && Cloud && (Cloud.normalizeBase(cfg.apiBase) || Cloud.DEFAULT_API_BASE)) {
-      appendBubble("bot", "教练 ee 思考中…");
+      appendBubble("bot", "教练 ee 思考中…", { speakable: false });
       const thinking = document.getElementById("chat-log")?.lastElementChild;
       try {
         const data = await Cloud.eeChat(chatHistory.slice(-12), "妹妹");
@@ -1064,8 +1112,17 @@
 
     if (!reply) reply = coachReply(trimmed);
     chatHistory.push({ role: "assistant", content: reply });
+    lastEeReply = reply;
     appendBubble("bot", reply);
     claimModule("chat", { silent: true });
+
+    if (options.fromVoice || (options.autoSpeak && autoSpeakEnabled())) {
+      if (autoSpeakEnabled()) {
+        speakEeReply(reply);
+      }
+    } else if (options.autoSpeak === true) {
+      speakEeReply(reply);
+    }
   }
 
   document.getElementById("chat-form")?.addEventListener("submit", (e) => {
@@ -1079,6 +1136,118 @@
   document.querySelectorAll("[data-quick]").forEach((btn) => {
     btn.addEventListener("click", () => sendChat(btn.dataset.quick));
   });
+
+  document.getElementById("btn-speak-last")?.addEventListener("click", () => {
+    if (!lastEeReply) {
+      toast("还没有 ee 的回复");
+      return;
+    }
+    speakEeReply(lastEeReply, { force: true });
+  });
+
+  // —— Push-to-talk with ee ——
+  (function bindVoiceChat() {
+    const Voice = window.KouyuVoice;
+    const btn = document.getElementById("btn-voice-hold");
+    const label = document.getElementById("voice-hold-label");
+    if (!btn || !Voice) return;
+
+    const session = Voice.createSession({
+      lang: "en-US",
+      onStatus: setVoiceStatus,
+    });
+    let pointerId = null;
+    let starting = false;
+
+    function setRecordingUi(on) {
+      btn.classList.toggle("recording", !!on);
+      if (label) label.textContent = on ? "松开 发送给 ee" : "按住 说话给 ee";
+    }
+
+    async function beginVoice(ev) {
+      if (voiceBusy || starting || session.isActive()) return;
+      if (ev && typeof ev.preventDefault === "function") ev.preventDefault();
+      starting = true;
+      voiceBusy = true;
+      try {
+        if (window.KouyuTTS && KouyuTTS.unlockAudio) KouyuTTS.unlockAudio();
+        if (window.KouyuTTS && KouyuTTS.stop) KouyuTTS.stop();
+        pointerId = ev && ev.pointerId != null ? ev.pointerId : null;
+        try {
+          if (pointerId != null && btn.setPointerCapture) btn.setPointerCapture(pointerId);
+        } catch {
+          /* ignore */
+        }
+        setRecordingUi(true);
+        const r = await session.start();
+        if (!r || !r.ok) {
+          setRecordingUi(false);
+          voiceBusy = false;
+          if (r && r.reason === "mic-denied") {
+            toast("请允许麦克风权限后，再按住说话");
+          }
+        }
+      } finally {
+        starting = false;
+      }
+    }
+
+    async function endVoice(ev) {
+      if (!session.isActive() && !voiceBusy) return;
+      if (ev && pointerId != null && ev.pointerId != null && ev.pointerId !== pointerId) return;
+      if (ev && typeof ev.preventDefault === "function") ev.preventDefault();
+      setRecordingUi(false);
+      try {
+        if (pointerId != null && btn.releasePointerCapture) {
+          try {
+            btn.releasePointerCapture(pointerId);
+          } catch {
+            /* ignore */
+          }
+        }
+        const result = await session.stop();
+        pointerId = null;
+        if (result && result.ok && result.text) {
+          setVoiceStatus("你说：" + result.text.slice(0, 60));
+          const input = document.getElementById("chat-input");
+          if (input) input.value = result.text;
+          await sendChat(result.text, { fromVoice: true, autoSpeak: true });
+          if (input) input.value = "";
+        } else if (result && result.reason === "too-short") {
+          /* status already set */
+        } else if (result && !result.ok) {
+          /* status already set */
+        }
+      } finally {
+        voiceBusy = false;
+        setRecordingUi(false);
+      }
+    }
+
+    btn.addEventListener("pointerdown", (e) => {
+      if (e.button != null && e.button !== 0) return;
+      beginVoice(e);
+    });
+    btn.addEventListener("pointerup", endVoice);
+    btn.addEventListener("pointercancel", endVoice);
+    btn.addEventListener("lostpointercapture", () => {
+      if (session.isActive()) endVoice();
+    });
+    // Prevent context menu / scroll stealing on long-press
+    btn.addEventListener("contextmenu", (e) => e.preventDefault());
+
+    window.addEventListener("kouyu-voice-max", () => {
+      if (session.isActive()) endVoice();
+    });
+
+    // Capability hint
+    const bits = [];
+    if (Voice.hasWebSpeechRec()) bits.push("本机识别✓");
+    else bits.push("本机识别✕（将用云端）");
+    if (Voice.hasMediaRecorder()) bits.push("麦克风✓");
+    else bits.push("麦克风✕");
+    setVoiceStatus("按住说话 · " + bits.join(" · "));
+  })();
 
   // —— Knowledge ——
   const lessons = {

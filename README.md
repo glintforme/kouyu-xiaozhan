@@ -51,3 +51,7 @@ python3 -m http.server 8765
 ```
 
 缓存参数：`?v=9`
+
+## 语音对话 ee（v10）
+
+学习端「对话」页：**按住说话** → 本机 Web Speech（Chrome/Edge）或云端 Whisper → ee 回复 → 可自动朗读英文。完整双工通话未做。

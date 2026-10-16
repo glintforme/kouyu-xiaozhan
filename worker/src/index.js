@@ -1,5 +1,5 @@
 /**
- * 口语小站 · Cloudflare Worker (LIVE v9)
+ * 口语小站 · Cloudflare Worker (LIVE v10)
  * 家庭同步 + ee 教练 API
  *
  * Prefer: Workers AI (non-deprecated models) → OpenAI → rules
@@ -420,6 +420,118 @@ function generateDailyTasks(seedInput) {
   };
 }
 
+
+const STT_MODELS = [
+  "@cf/openai/whisper",
+  "@cf/openai/whisper-tiny-en",
+  "@cf/openai/whisper-large-v3-turbo",
+];
+
+function extractSttText(result) {
+  if (!result) return null;
+  if (typeof result === "string" && result.trim()) return result.trim();
+  const candidates = [
+    result.text,
+    result.result?.text,
+    result.transcription,
+    result.transcript,
+    Array.isArray(result.segments)
+      ? result.segments.map((s) => s?.text || "").join(" ").trim()
+      : null,
+  ];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim()) return c.trim();
+  }
+  return null;
+}
+
+async function runWhisperStt(env, audioBytes, mimeHint) {
+  if (!env.AI || typeof env.AI.run !== "function") {
+    return { error: "AI binding missing" };
+  }
+  const bytes = audioBytes instanceof Uint8Array ? audioBytes : new Uint8Array(audioBytes);
+  if (!bytes.length) return { error: "empty audio" };
+  if (bytes.length > 4_500_000) return { error: "audio too large (max ~4MB)" };
+
+  const errors = [];
+  // Classic whisper: raw byte array
+  for (const model of ["@cf/openai/whisper", "@cf/openai/whisper-tiny-en"]) {
+    try {
+      const result = await env.AI.run(model, { audio: [...bytes] });
+      const text = extractSttText(result);
+      if (text) return { text, engine: "workers-ai-whisper", model };
+      errors.push(model + " empty");
+    } catch (e) {
+      errors.push(model + ": " + String(e && e.message ? e.message : e));
+    }
+  }
+
+  // large-v3-turbo often wants base64 / typed input
+  try {
+    let binary = "";
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+    }
+    const b64 = btoa(binary);
+    const mime = mimeHint || "audio/wav";
+    const payloads = [
+      { audio: b64, task: "transcribe", language: "en" },
+      { audio: [...bytes], task: "transcribe", language: "en" },
+      { audio: `data:${mime};base64,${b64}` },
+    ];
+    for (const input of payloads) {
+      try {
+        const result = await env.AI.run("@cf/openai/whisper-large-v3-turbo", input);
+        const text = extractSttText(result);
+        if (text) {
+          return { text, engine: "workers-ai-whisper", model: "@cf/openai/whisper-large-v3-turbo" };
+        }
+      } catch (e) {
+        errors.push("large-v3: " + String(e && e.message ? e.message : e));
+      }
+    }
+  } catch (e) {
+    errors.push("large-v3 prep: " + String(e && e.message ? e.message : e));
+  }
+
+  return { error: errors.join("; ") || "stt failed" };
+}
+
+async function readSttAudio(request) {
+  const ct = (request.headers.get("Content-Type") || "").toLowerCase();
+  if (ct.includes("application/json")) {
+    const body = await readJson(request);
+    if (!body) return { error: "Invalid JSON" };
+    const b64 = String(body.audioBase64 || body.audio || "").replace(/^data:[^;]+;base64,/, "");
+    if (!b64) return { error: "audioBase64 required" };
+    try {
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return { bytes, mime: body.mime || body.contentType || "audio/wav", language: body.language || "en" };
+    } catch {
+      return { error: "invalid base64 audio" };
+    }
+  }
+  if (ct.includes("multipart/form-data")) {
+    const form = await request.formData();
+    const file = form.get("audio") || form.get("file");
+    if (!file || typeof file.arrayBuffer !== "function") return { error: "audio file required" };
+    const buf = await file.arrayBuffer();
+    return {
+      bytes: new Uint8Array(buf),
+      mime: file.type || "audio/wav",
+      language: String(form.get("language") || "en"),
+    };
+  }
+  // raw body (wav/webm)
+  const buf = await request.arrayBuffer();
+  if (!buf || buf.byteLength < 64) return { error: "audio body required" };
+  return { bytes: new Uint8Array(buf), mime: ct.split(";")[0] || "application/octet-stream", language: "en" };
+}
+
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -434,7 +546,7 @@ export default {
         {
           ok: true,
           service: "kouyu-xiaozhan-worker",
-          version: 9,
+          version: 10,
           ping: true,
           host: url.hostname,
           ts: new Date().toISOString(),
@@ -449,7 +561,7 @@ export default {
       const body = {
         ok: true,
         service: "kouyu-xiaozhan-worker",
-        version: 9,
+        version: 10,
         sync: !!env.SYNC,
         ai: !!(env.AI || env.OPENAI_API_KEY),
         aiBinding: !!env.AI,
@@ -540,6 +652,31 @@ export default {
       const data = generateDailyTasks(seed);
       return json({ ok: true, ...data }, 200, request);
     }
+
+    if (url.pathname === "/api/ee/stt" && request.method === "POST") {
+      const parsed = await readSttAudio(request);
+      if (parsed.error) return bad(request, parsed.error);
+      const result = await runWhisperStt(env, parsed.bytes, parsed.mime);
+      if (result.error) {
+        return json(
+          { ok: false, error: result.error, engine: null, text: "" },
+          502,
+          request
+        );
+      }
+      return json(
+        {
+          ok: true,
+          text: result.text,
+          engine: result.engine,
+          model: result.model || null,
+          mime: parsed.mime || null,
+        },
+        200,
+        request
+      );
+    }
+
 
     if (!env.SYNC) {
       return bad(request, "KV binding SYNC not configured", 500);

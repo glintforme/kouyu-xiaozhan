@@ -1,10 +1,10 @@
 # 口语小站 Worker（云同步 + ee API）
 
 > **状态：LIVE**  
-> URL：`https://kouyu-xiaozhan-api.kncrty.workers.dev`  
-> Health：`GET /api/health` → `{ ok: true, sync: true, ai: true, version: 7 }`  
+> URL：`https://kouyu-api.allovemiku.top（备用 workers.dev）`  
+> Health：`GET /api/health` → `{ ok: true, sync: true, ai: true, version: 10 }`  
 > KV：`kouyu-sync`（id `db6288cfc0bc40539357e7406a166d99`）  
-> 前端默认 API Base 已指向此地址（`?v=8` · Worker version 8）。
+> 前端默认 API Base 已指向此地址（`?v=10` · Worker version 10 · STT）。
 
 ## 提供的接口
 
@@ -17,6 +17,7 @@
 | POST | `/api/ee/chat` | ee 对话（优先 Workers AI → OpenAI → 规则引擎） |
 | POST | `/api/ee/tasks/generate` | 生成每日任务 JSON |
 | GET | `/api/tts?text=&lang=en` | 英文短音频代理（有道→Google，供国产手机浏览器） |
+| POST | `/api/ee/stt` | 语音转写（Workers AI Whisper；按住说话备用） |
 
 可选请求头：`X-Family-Secret`（若设置了 `FAMILY_SECRET`）。
 
@@ -44,12 +45,12 @@ npx wrangler secret put OPENAI_API_KEY
 
 ## 前端一键连通
 
-1. 打开 https://glintforme.github.io/kouyu-xiaozhan/?v=8
+1. 打开 https://glintforme.github.io/kouyu-xiaozhan/?v=10
 2. 哥哥：管理端设密码 → 填家庭同步码 →「⚡ 一键初始化 + 测试连通」
 3. 妹妹：同一同步码 → 启用云同步 →「⚡ 测试连通」→ 学习自动推送
 
 ## 与 Pages 的关系
 
 - 站点：**GitHub Pages** `https://glintforme.github.io/kouyu-xiaozhan/`
-- API：**Workers** `https://kouyu-xiaozhan-api.kncrty.workers.dev`
+- API：**Workers** `https://kouyu-api.allovemiku.top（备用 workers.dev）`
 - CORS 已允许 `*.github.io` 与 `localhost`

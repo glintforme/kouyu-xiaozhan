@@ -1649,3 +1649,96 @@ button.vocab-speak {
   position: fixed;
   z-index: 30;
 }
+
+
+/* Voice chat with ee (v10) */
+.voice-chat-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 0;
+  background: #fff;
+  border-top: 1px solid var(--line);
+}
+
+.btn-voice-hold {
+  width: 100%;
+  min-height: 52px;
+  border: none;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #ff8a5c, #ff5c8a);
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  box-shadow: 0 6px 16px rgba(255, 92, 138, 0.28);
+  cursor: pointer;
+}
+
+.btn-voice-hold:active,
+.btn-voice-hold.recording {
+  transform: scale(0.98);
+  background: linear-gradient(135deg, #e85a3a, #d63a6a);
+  box-shadow: 0 0 0 3px rgba(255, 92, 138, 0.35);
+}
+
+.btn-voice-hold.recording .voice-hold-ico {
+  animation: voice-pulse 1s ease-in-out infinite;
+}
+
+@keyframes voice-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.18); opacity: 0.85; }
+}
+
+.voice-chat-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 4px;
+}
+
+.voice-auto-speak {
+  font-size: 12px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+}
+
+.voice-status {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  min-height: 18px;
+}
+
+.bubble.bot .bubble-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 6px;
+}
+
+.bubble.bot .btn-speak-bubble {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--muted);
+  min-height: 28px;
+  cursor: pointer;
+}
+
+.chat-input-bar #btn-speak-last {
+  min-width: 48px;
+  padding: 0 10px;
+}

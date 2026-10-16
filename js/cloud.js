@@ -1,4 +1,4 @@
-/* 口语小站 · 云同步 + ee API 客户端 v9（国内自定义域名 + 多端点回退） */
+/* 口语小站 · 云同步 + ee API 客户端 v10（国内自定义域名 + 多端点回退） */
 (function (global) {
   "use strict";
 
@@ -14,7 +14,7 @@
 
   function defaultCloud() {
     return {
-      version: 9,
+      version: 10,
       familyCode: "",
       apiBase: DEFAULT_API_BASE,
       apiBaseAlt: "",
@@ -57,7 +57,7 @@
         merged.apiBaseAlt = merged.apiBaseAlt || LEGACY_API_BASE;
         merged.lastSyncStatus = merged.lastSyncStatus || "已切换到国内友好域名";
       }
-      merged.version = 9;
+      merged.version = 10;
       return merged;
     } catch {
       return defaultCloud();
@@ -505,6 +505,50 @@
     }
   }
 
+
+  async function eeStt(blobOrBase64, options) {
+    options = options || {};
+    const cfg = loadCloud();
+    const base = normalizeBase(cfg.apiBase) || DEFAULT_API_BASE;
+    if (!base) throw new Error("未配置 API Base，无法语音转写");
+    if (!normalizeBase(cfg.apiBase)) {
+      cfg.apiBase = DEFAULT_API_BASE;
+      saveCloud(cfg);
+    }
+
+    let audioBase64 = "";
+    let mime = options.mime || "audio/wav";
+    if (typeof blobOrBase64 === "string") {
+      audioBase64 = blobOrBase64.replace(/^data:[^;]+;base64,/, "");
+    } else if (blobOrBase64 && typeof blobOrBase64.arrayBuffer === "function") {
+      mime = blobOrBase64.type || mime;
+      const buf = await blobOrBase64.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      let binary = "";
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+      }
+      audioBase64 = btoa(binary);
+    } else {
+      throw new Error("需要录音数据");
+    }
+    if (!audioBase64) throw new Error("录音为空");
+
+    const data = await api("/api/ee/stt", {
+      method: "POST",
+      headers: headers(cfg),
+      body: JSON.stringify({
+        audioBase64,
+        mime,
+        language: options.language || "en",
+        familyCode: normalizeCode(cfg.familyCode) || undefined,
+      }),
+      timeoutMs: options.timeoutMs || 60000,
+    });
+    return data;
+  }
+
   async function eeGenerateTasks(dateKey) {
     const cfg = loadCloud();
     const base = normalizeBase(cfg.apiBase) || DEFAULT_API_BASE;
@@ -575,6 +619,7 @@
     schedulePush,
     pullSisterProgress,
     eeChat,
+    eeStt,
     eeGenerateTasks,
     setStatus,
     formatSyncTime,
