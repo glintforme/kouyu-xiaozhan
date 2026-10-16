@@ -696,3 +696,141 @@ img { max-width: 100%; }
   .nav-btn { font-size: 10px; }
   .nav-btn .ico { font-size: 16px; }
 }
+
+/* —— Vocab / Chinese glosses (english-major update) —— */
+.zh-gloss,
+.front-zh {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--primary-dark);
+  margin: 6px 0 8px;
+}
+
+.sentence-zh {
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+.badge-soft {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: #2f6b52;
+  vertical-align: middle;
+}
+
+.vocab-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.vocab-card {
+  background: #faf6f2;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+
+.vocab-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.vocab-word {
+  font-size: 17px;
+  color: var(--ink);
+}
+
+.vocab-ipa {
+  font-size: 13px;
+  color: var(--primary-dark);
+  font-weight: 600;
+}
+
+.vocab-zh {
+  font-size: 13px;
+  font-weight: 600;
+  color: #2f6b52;
+  margin-bottom: 8px;
+}
+
+.vocab-ex .en {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.vocab-ex .zh {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.btn-sm {
+  min-height: 36px !important;
+  padding: 6px 12px !important;
+  font-size: 12px !important;
+}
+
+.lesson-zh-block {
+  display: block;
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: var(--accent-soft);
+  border-radius: 10px;
+  font-size: 13px;
+  color: #2f6b52;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.phrase-chips .phrase-chip,
+.phrase-chips span.phrase-chip {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  background: var(--warn-soft);
+  border: 1px solid #f0dfb8;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.phrase-chips .phrase-chip em {
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.phrase-chips .phrase-chip strong {
+  font-weight: 700;
+}
+
+.flashcard .front-zh {
+  margin-top: 0;
+}
+
+.section-title {
+  font-size: 20px;
+  margin-bottom: 4px;
+}
+
+.bottom-nav {
+  grid-template-columns: repeat(7, 1fr);
+}
+
+@media (max-width: 420px) {
+  .nav-btn { font-size: 9px; }
+  .nav-btn .ico { font-size: 15px; }
+  .vocab-word { font-size: 15px; }
+}
