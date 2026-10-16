@@ -1,0 +1,323 @@
+/* 口语小站 · 哥哥管理端 */
+(function (global) {
+  "use strict";
+
+  const S = () => global.KouyuStorage;
+  const G = () => global.KouyuGame;
+
+  function toast(msg) {
+    const el = document.getElementById("app-toast");
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.add("show");
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => el.classList.remove("show"), 3200);
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/\n/g, "<br>");
+  }
+
+  function getSisterViewState() {
+    const St = S();
+    const admin = St.loadAdmin();
+    // Same browser: live sister profile
+    const live = St.loadProfileState(St.SISTER_ID);
+    // If brother imported a snapshot and it's newer, prefer showing snapshot note + merge display
+    return {
+      live,
+      snapshot: admin.importedSisterSnapshot,
+      using: "live", // always show live when on same device; snapshot is backup view
+    };
+  }
+
+  function sisterDisplayState() {
+    const St = S();
+    const admin = St.loadAdmin();
+    const live = St.loadProfileState(St.SISTER_ID);
+    // Prefer live if it has activity; else imported snapshot
+    const liveActive = (live.xp || 0) > 0 || (live.gameTasks || []).some((t) => t.done) || live.lastCheckInDate;
+    if (liveActive) return { state: live, source: "本机妹妹档案（实时）" };
+    if (admin.importedSisterSnapshot && admin.importedSisterSnapshot.state) {
+      return {
+        state: St.normalizeState(admin.importedSisterSnapshot.state),
+        source: "已导入的同步包（" + (admin.importedSisterSnapshot.exportedAt || "").slice(0, 16) + "）",
+      };
+    }
+    return { state: live, source: "本机妹妹档案（暂无学习记录时可导入同步包）" };
+  }
+
+  function showAdminLogin() {
+    const setup = document.getElementById("admin-setup");
+    const login = document.getElementById("admin-login");
+    const dash = document.getElementById("admin-dashboard");
+    const admin = S().loadAdmin();
+    if (setup) setup.style.display = admin.setupDone ? "none" : "block";
+    if (login) login.style.display = admin.setupDone ? "block" : "none";
+    if (dash) dash.style.display = "none";
+  }
+
+  function showAdminDash() {
+    const setup = document.getElementById("admin-setup");
+    const login = document.getElementById("admin-login");
+    const dash = document.getElementById("admin-dashboard");
+    if (setup) setup.style.display = "none";
+    if (login) login.style.display = "none";
+    if (dash) dash.style.display = "block";
+    renderDashboard();
+  }
+
+  function enterAdminShell() {
+    document.getElementById("shell-learn")?.classList.add("hidden");
+    document.getElementById("shell-admin")?.classList.remove("hidden");
+    document.body.classList.add("mode-admin");
+    document.querySelector(".bottom-nav")?.classList.add("hidden");
+    if (S().isAdminSession()) showAdminDash();
+    else showAdminLogin();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function leaveAdminShell() {
+    S().setAdminSession(false);
+    document.getElementById("shell-admin")?.classList.add("hidden");
+    document.getElementById("shell-learn")?.classList.remove("hidden");
+    document.body.classList.remove("mode-admin");
+    document.querySelector(".bottom-nav")?.classList.remove("hidden");
+    location.hash = "#home";
+  }
+
+  function renderDashboard() {
+    const { state, source } = sisterDisplayState();
+    const prog = G().xpProgress(state.xp || 0);
+    const set = (id, val) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = val;
+    };
+    set("adm-source", source);
+    set("adm-level", String(state.level || G().levelFromXp(state.xp)));
+    set("adm-xp", String(state.xp || 0));
+    set("adm-streak", String(state.streak || 0));
+    set("adm-xp-bar-label", `${prog.into} / ${prog.need} XP 升下一级`);
+    const bar = document.getElementById("adm-xp-bar");
+    if (bar) bar.style.width = `${prog.pct}%`;
+
+    const tasks = state.gameTasks || [];
+    const done = tasks.filter((t) => t.done).length;
+    set("adm-task-summary", `${done} / ${tasks.length} 任务已完成`);
+
+    const taskList = document.getElementById("adm-task-list");
+    if (taskList) {
+      if (!tasks.length) {
+        taskList.innerHTML = "<p class='hint'>暂无任务。ee 会在妹妹打开学习端时自动发每日任务；你也可以下方发布。</p>";
+      } else {
+        taskList.innerHTML = tasks
+          .map(
+            (t) =>
+              `<li class="adm-task ${t.done ? "done" : ""}"><span class="tag">${t.source === "brother" ? "哥哥" : "ee"}</span> ${escapeHtml(t.title)} <em>+${t.xp}XP</em> ${t.done ? "✅" : "⏳"}</li>`
+          )
+          .join("");
+      }
+    }
+
+    const rewards = state.rewards || [];
+    const rewardEl = document.getElementById("adm-rewards");
+    if (rewardEl) {
+      rewardEl.innerHTML = rewards.length
+        ? rewards.map((r) => `<span class="reward-chip">${r.emoji || "🏅"} ${escapeHtml(r.name)}</span>`).join("")
+        : "<span class='hint'>暂无徽章</span>";
+    }
+
+    const challenges = state.challengeResults || [];
+    const chEl = document.getElementById("adm-challenges");
+    if (chEl) {
+      if (!challenges.length) {
+        chEl.innerHTML = "<p class='hint'>还没有测验记录。</p>";
+      } else {
+        chEl.innerHTML = challenges
+          .slice(0, 12)
+          .map((c) => {
+            const meta = G().CHALLENGE_META[c.kind] || { label: c.kind, emoji: "📝" };
+            const pct = Math.round((c.ratio || 0) * 100);
+            return `<li>${meta.emoji} ${meta.label} · ${c.correct}/${c.total}（${pct}%）${c.passed ? " · 通过" : " · 未过"} · +${c.xp}XP <small>${(c.at || "").slice(0, 16)}</small></li>`;
+          })
+          .join("");
+      }
+    }
+
+    const pub = S().loadAdmin().publishedTasks || [];
+    const pubEl = document.getElementById("adm-published");
+    if (pubEl) {
+      pubEl.innerHTML = pub.length
+        ? pub
+            .map(
+              (t) =>
+                `<li><strong>${escapeHtml(t.title)}</strong> · +${t.xp}XP <button type="button" class="btn btn-ghost btn-sm" data-del-pub="${escapeHtml(t.id)}">删除</button></li>`
+            )
+            .join("")
+        : "<p class='hint'>你还没发布过自定义任务。</p>";
+      pubEl.querySelectorAll("[data-del-pub]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const admin = S().loadAdmin();
+          admin.publishedTasks = (admin.publishedTasks || []).filter((t) => t.id !== btn.getAttribute("data-del-pub"));
+          S().saveAdmin(admin);
+          // also remove from sister if unfinished
+          const st = S().loadProfileState(S().SISTER_ID);
+          st.gameTasks = (st.gameTasks || []).filter((t) => t.id !== btn.getAttribute("data-del-pub") || t.done);
+          S().saveProfileState(S().SISTER_ID, st);
+          renderDashboard();
+          toast("已删除该任务");
+        });
+      });
+    }
+  }
+
+  function bindAdmin() {
+    document.getElementById("btn-admin-setup")?.addEventListener("click", async () => {
+      const p1 = document.getElementById("admin-setup-pass")?.value || "";
+      const p2 = document.getElementById("admin-setup-pass2")?.value || "";
+      if (p1.length < 4) {
+        toast("密码至少 4 位（家庭演示用，请勿用银行卡密码）");
+        return;
+      }
+      if (p1 !== p2) {
+        toast("两次密码不一致");
+        return;
+      }
+      await S().setupAdminPassword(p1);
+      toast("管理密码已设置，已进入管理端");
+      showAdminDash();
+    });
+
+    document.getElementById("btn-admin-login")?.addEventListener("click", async () => {
+      const u = document.getElementById("admin-login-user")?.value || "brother";
+      const p = document.getElementById("admin-login-pass")?.value || "";
+      const ok = await S().verifyAdminPassword(u, p);
+      if (!ok) {
+        toast("账号或密码不对");
+        return;
+      }
+      S().setAdminSession(true);
+      toast("登录成功");
+      showAdminDash();
+    });
+
+    document.getElementById("btn-admin-logout")?.addEventListener("click", () => {
+      leaveAdminShell();
+      toast("已退出管理端");
+    });
+
+    document.getElementById("btn-admin-back-learn")?.addEventListener("click", () => {
+      document.getElementById("shell-admin")?.classList.add("hidden");
+      document.getElementById("shell-learn")?.classList.remove("hidden");
+      document.body.classList.remove("mode-admin");
+      document.querySelector(".bottom-nav")?.classList.remove("hidden");
+      // keep session so returning to #admin stays logged in
+      location.hash = "#home";
+    });
+
+    document.getElementById("btn-publish-task")?.addEventListener("click", () => {
+      const title = (document.getElementById("pub-title")?.value || "").trim();
+      const xp = Number(document.getElementById("pub-xp")?.value) || 15;
+      const link = document.getElementById("pub-link")?.value || "#home";
+      const note = (document.getElementById("pub-note")?.value || "").trim();
+      if (!title) {
+        toast("请填写任务标题");
+        return;
+      }
+      const admin = S().loadAdmin();
+      const task = G().makeTask(
+        {
+          id: "brother-" + Date.now().toString(36),
+          title,
+          xp: Math.min(200, Math.max(5, xp)),
+          link,
+          note,
+          type: "custom",
+        },
+        "brother"
+      );
+      admin.publishedTasks = admin.publishedTasks || [];
+      admin.publishedTasks.unshift(task);
+      S().saveAdmin(admin);
+      // push into sister live profile
+      const st = S().loadProfileState(S().SISTER_ID);
+      G().mergeBrotherPublishedTasks(st, [task]);
+      S().saveProfileState(S().SISTER_ID, st);
+      document.getElementById("pub-title").value = "";
+      document.getElementById("pub-note").value = "";
+      renderDashboard();
+      toast("已发布任务到妹妹任务列表");
+    });
+
+    document.getElementById("btn-import-sister")?.addEventListener("click", () => {
+      document.getElementById("adm-import-file")?.click();
+    });
+
+    document.getElementById("adm-import-file")?.addEventListener("change", async (e) => {
+      const file = e.target.files && e.target.files[0];
+      e.target.value = "";
+      if (!file) return;
+      try {
+        const data = JSON.parse(await file.text());
+        if (!data || (data.kind !== "kouyu-xiaozhan-sister-sync" && data.kind !== "kouyu-xiaozhan-backup") || !data.state) {
+          toast("请选择妹妹导出的同步 JSON");
+          return;
+        }
+        const admin = S().loadAdmin();
+        admin.importedSisterSnapshot = {
+          exportedAt: data.exportedAt || new Date().toISOString(),
+          profile: data.profile || null,
+          state: data.state,
+        };
+        S().saveAdmin(admin);
+        // Also offer to write into live sister slot for same-device continuity
+        const writeLive = window.confirm(
+          "同步包已保存到管理端。\n\n【确定】同时写入本机「妹妹」档案（覆盖本机妹妹数据）\n【取消】只在管理端查看快照，不改本机妹妹档案"
+        );
+        if (writeLive) {
+          S().saveProfileState(S().SISTER_ID, S().normalizeState(data.state));
+        }
+        renderDashboard();
+        toast(writeLive ? "已导入并写入本机妹妹档案" : "已导入快照（仅管理端查看）");
+      } catch {
+        toast("导入失败：无法解析文件");
+      }
+    });
+
+    document.getElementById("btn-change-pass")?.addEventListener("click", async () => {
+      const oldP = document.getElementById("adm-old-pass")?.value || "";
+      const newP = document.getElementById("adm-new-pass")?.value || "";
+      if (newP.length < 4) {
+        toast("新密码至少 4 位");
+        return;
+      }
+      const ok = await S().changeAdminPassword(oldP, newP);
+      if (!ok) {
+        toast("旧密码不对");
+        return;
+      }
+      document.getElementById("adm-old-pass").value = "";
+      document.getElementById("adm-new-pass").value = "";
+      toast("密码已修改");
+    });
+
+    document.getElementById("btn-refresh-adm")?.addEventListener("click", () => {
+      renderDashboard();
+      toast("已刷新妹妹进度");
+    });
+  }
+
+  global.KouyuAdmin = {
+    enterAdminShell,
+    leaveAdminShell,
+    showAdminLogin,
+    showAdminDash,
+    renderDashboard,
+    bindAdmin,
+    sisterDisplayState,
+  };
+})(window);

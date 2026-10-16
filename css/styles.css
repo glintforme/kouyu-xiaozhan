@@ -1058,3 +1058,213 @@ img { max-width: 100%; }
 @media (max-width: 360px) {
   .nav-btn { font-size: 8px; min-width: 44px; }
 }
+
+/* —— v4 Game + Admin —— */
+.hidden { display: none !important; }
+
+.hud-pill {
+  background: #2c2420;
+  color: #fff;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.btn-icon-admin {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--warn-soft);
+  border: 1px solid var(--line);
+  font-size: 16px;
+}
+
+.xp-hud {
+  width: min(720px, 100%);
+  margin: 0 auto;
+  padding: 8px 16px 0;
+}
+
+.xp-hud-top {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.xp-bar-wrap { height: 8px; margin-bottom: 4px; }
+
+.game-task-list { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+
+.game-task-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.game-task-item.done { opacity: 0.72; background: var(--accent-soft); }
+
+.game-task-item .meta { flex: 1; min-width: 0; }
+.game-task-item .meta strong { display: block; font-size: 14px; }
+.game-task-item .meta span { font-size: 12px; color: var(--muted); }
+
+.src-tag {
+  display: inline-block;
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+  border-radius: 6px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  margin-right: 4px;
+}
+
+.task-actions { display: flex; flex-direction: column; gap: 6px; align-items: stretch; flex-shrink: 0; }
+.task-actions .go, .task-actions .btn { min-width: 72px; }
+.done-label { font-size: 12px; color: var(--accent); font-weight: 700; text-align: center; }
+
+.btn-sm { padding: 6px 10px !important; font-size: 12px !important; min-height: 34px; }
+
+.badge-wall {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.badge-item, .reward-chip {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+  background: #fff;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.badge-item.locked { opacity: 0.45; filter: grayscale(0.8); }
+.badge-item.owned { background: var(--accent-soft); border-color: #b7d9c8; }
+.reward-chip { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; margin: 4px; }
+
+.challenge-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.challenge-card {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 16px 12px;
+  background: linear-gradient(160deg, #fff, var(--primary-soft));
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: var(--shadow);
+}
+
+.challenge-card .emoji { font-size: 28px; }
+.challenge-card strong { font-size: 15px; }
+.challenge-card span { font-size: 12px; color: var(--muted); }
+
+.quiz-q {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.quiz-choices { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.quiz-choices label {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  font-size: 14px;
+}
+
+.field-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  margin: 10px 0 4px;
+}
+
+.field-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font: inherit;
+  background: #fff;
+}
+
+.warn-box {
+  background: var(--warn-soft);
+  border: 1px solid var(--warn);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.admin-mark { background: linear-gradient(135deg, #3d405b, #81b29a) !important; }
+.admin-container { padding-bottom: 40px; }
+.adm-head-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.adm-head-row h2 { font-size: 18px; }
+
+.adm-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.adm-stat {
+  background: var(--primary-soft);
+  border-radius: 12px;
+  padding: 12px 8px;
+  text-align: center;
+}
+
+.adm-stat span { display: block; font-size: 11px; color: var(--muted); }
+.adm-stat strong { font-size: 18px; }
+
+.adm-task-list, .adm-challenge-list, .adm-published-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.adm-task .tag {
+  background: var(--warn-soft);
+  border-radius: 4px;
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.adm-task.done { color: var(--muted); text-decoration: line-through; }
+
+body.mode-admin { padding-bottom: 24px; }
+body.mode-admin .xp-hud { display: none; }
+
+@media (max-width: 480px) {
+  .challenge-grid { grid-template-columns: 1fr; }
+  .game-task-item { flex-direction: column; }
+  .task-actions { flex-direction: row; width: 100%; }
+  .task-actions .go, .task-actions .btn { flex: 1; }
+  .header-right { gap: 6px; }
+  .nav-btn { font-size: 9px; padding: 6px 4px; }
+}

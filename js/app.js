@@ -1,243 +1,40 @@
-/* 口语小站 · App logic · 多档案隔离 + 英语专业向词汇(各自独立中文释义) */
+/* 口语小站 · 学习端主逻辑 v4 · 游戏化 + 妹妹档案 */
 (function () {
   "use strict";
 
-  const META_KEY = "kouyu-xiaozhan-meta-v3";
-  const PROFILE_PREFIX = "kouyu-xiaozhan-profile-v3:";
-  const LEGACY_KEYS = ["kouyu-xiaozhan-v2", "kouyu-xiaozhan-v1"];
+  const St = window.KouyuStorage;
+  const Gm = window.KouyuGame;
+  const Ad = window.KouyuAdmin;
 
-  function clone(obj) {
-    try {
-      return structuredClone(obj);
-    } catch {
-      return JSON.parse(JSON.stringify(obj));
-    }
+  St.migrateLegacyIfNeeded();
+  let meta = St.loadMeta();
+  // Force sister as learner for learn shell
+  if (!meta.profiles.some((p) => p.id === St.SISTER_ID)) {
+    meta = St.defaultMeta();
+  }
+  meta.activeProfileId = St.SISTER_ID;
+  St.saveMeta(meta);
+  if (!localStorage.getItem(St.profileKey(St.SISTER_ID))) {
+    St.saveProfileState(St.SISTER_ID, St.emptyProfileState());
   }
 
-  function emptyProfileState() {
-    return {
-      streak: 0,
-      lastCheckInDate: null,
-      tasks: { pronounce: false, shadow: false, input: false, output: false },
-      pathUnlocked: 1,
-      wrongBook: [
-        {
-          id: "th",
-          word: "think",
-          ipa: "/θɪŋk/",
-          zh: "想；认为",
-          tip: "舌尖轻触上牙，气流从齿缝出，不要发成 /s/。",
-          exampleEn: "I think this essay needs a clearer thesis.",
-          exampleZh: "我认为这篇论文需要更清晰的论点。",
-          due: 0,
-        },
-        {
-          id: "discuss",
-          word: "discuss",
-          ipa: "/dɪˈskʌs/",
-          zh: "讨论",
-          tip: "重音在第二音节 -scuss；词尾 /s/ 清辅音。",
-          exampleEn: "Let's discuss the main idea of this poem.",
-          exampleZh: "我们来讨论一下这首诗的主旨。",
-          due: 0,
-        },
-        {
-          id: "paraphrase",
-          word: "paraphrase",
-          ipa: "/ˈpærəfreɪz/",
-          zh: "释义；改述",
-          tip: "para- 轻读，重音在第一音节；phrase 发 /freɪz/。",
-          exampleEn: "Can you paraphrase this sentence in your own words?",
-          exampleZh: "你能用自己的话改述这个句子吗？",
-          due: 0,
-        },
-      ],
-      reviewIndex: 0,
-      retells: {},
-      selectedVocabThemeId: null,
-    };
-  }
-
-  function defaultMeta() {
-    const now = new Date().toISOString();
-    return {
-      version: 3,
-      activeProfileId: "sister",
-      profiles: [
-        { id: "sister", name: "妹妹", emoji: "👧", createdAt: now },
-        { id: "brother", name: "哥哥", emoji: "👦", createdAt: now },
-      ],
-    };
-  }
-
-  function profileKey(id) {
-    return PROFILE_PREFIX + id;
-  }
-
-  function loadMeta() {
-    try {
-      const raw = localStorage.getItem(META_KEY);
-      if (!raw) return defaultMeta();
-      const parsed = JSON.parse(raw);
-      const base = defaultMeta();
-      const profiles =
-        Array.isArray(parsed.profiles) && parsed.profiles.length
-          ? parsed.profiles.map((p) => ({
-              id: String(p.id),
-              name: String(p.name || "学习者"),
-              emoji: p.emoji || "📘",
-              createdAt: p.createdAt || new Date().toISOString(),
-            }))
-          : base.profiles;
-      let active = parsed.activeProfileId;
-      if (!profiles.some((p) => p.id === active)) active = profiles[0].id;
-      return { version: 3, activeProfileId: active, profiles };
-    } catch {
-      return defaultMeta();
-    }
-  }
-
-  function saveMeta() {
-    localStorage.setItem(META_KEY, JSON.stringify(meta));
-  }
-
-  function normalizeState(parsed) {
-    const base = emptyProfileState();
-    if (!parsed || typeof parsed !== "object") return base;
-    const wrongBook = Array.isArray(parsed.wrongBook)
-      ? parsed.wrongBook.map((c) => ({
-          id: c.id || "w-" + Date.now(),
-          word: c.word || "",
-          ipa: c.ipa || "",
-          zh: c.zh || "",
-          tip: c.tip || "",
-          exampleEn: c.exampleEn || "",
-          exampleZh: c.exampleZh || "",
-          due: c.due || 0,
-        }))
-      : base.wrongBook;
-    return {
-      ...base,
-      ...parsed,
-      tasks: { ...base.tasks, ...(parsed.tasks || {}) },
-      wrongBook,
-      retells: parsed.retells && typeof parsed.retells === "object" ? parsed.retells : {},
-      streak: Number(parsed.streak) || 0,
-      pathUnlocked: Math.min(4, Math.max(1, Number(parsed.pathUnlocked) || 1)),
-      reviewIndex: Number(parsed.reviewIndex) || 0,
-    };
-  }
-
-  function migrateLegacyIfNeeded() {
-    if (localStorage.getItem(META_KEY)) return;
-    for (const key of LEGACY_KEYS) {
-      const raw = localStorage.getItem(key);
-      if (!raw) continue;
-      try {
-        const parsed = JSON.parse(raw);
-        const state = normalizeState(parsed);
-        const m = defaultMeta();
-        localStorage.setItem(META_KEY, JSON.stringify(m));
-        localStorage.setItem(profileKey("sister"), JSON.stringify(state));
-        localStorage.setItem(profileKey("brother"), JSON.stringify(emptyProfileState()));
-        return;
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-
-  function loadProfileState(id) {
-    try {
-      const raw = localStorage.getItem(profileKey(id));
-      if (!raw) return emptyProfileState();
-      return normalizeState(JSON.parse(raw));
-    } catch {
-      return emptyProfileState();
-    }
-  }
-
-  function saveProfileState(id, st) {
-    localStorage.setItem(profileKey(id), JSON.stringify(st));
-  }
-
-  migrateLegacyIfNeeded();
-  let meta = loadMeta();
-  // Ensure every listed profile has a storage slot
-  meta.profiles.forEach((p) => {
-    if (!localStorage.getItem(profileKey(p.id))) {
-      saveProfileState(p.id, emptyProfileState());
-    }
-  });
-  saveMeta();
-
-  let state = loadProfileState(meta.activeProfileId);
-
-  function activeProfile() {
-    return meta.profiles.find((p) => p.id === meta.activeProfileId) || meta.profiles[0];
-  }
+  let state = St.loadProfileState(St.SISTER_ID);
 
   function persist() {
-    saveProfileState(meta.activeProfileId, state);
-    saveMeta();
+    St.saveProfileState(St.SISTER_ID, state);
+    St.saveMeta(meta);
   }
 
-  function switchProfile(id) {
-    if (id === meta.activeProfileId) return;
-    if (!meta.profiles.some((p) => p.id === id)) return;
+  function refreshGameTasks() {
+    state = Gm.ensureEeDailyTasks(state);
+    state = Gm.ensureEeWeeklyChallengeHint(state);
+    const admin = St.loadAdmin();
+    state = Gm.mergeBrotherPublishedTasks(state, admin.publishedTasks || []);
+    Gm.evaluateBadges(state);
     persist();
-    meta.activeProfileId = id;
-    state = loadProfileState(id);
-    saveMeta();
-    maybeResetDailyTasks();
-    refreshAll();
-    toast(`已切换到「${activeProfile().name}」的学习数据（与其它档案完全分开）`);
   }
 
-  function renameActiveProfile(name) {
-    const n = (name || "").trim().slice(0, 20);
-    if (!n) return;
-    const p = activeProfile();
-    p.name = n;
-    saveMeta();
-    renderProfileUI();
-    toast(`学习者名称已改为「${n}」`);
-  }
-
-  function createProfile(name) {
-    const n = (name || "").trim().slice(0, 20) || "新学习者";
-    const id = "p-" + Date.now().toString(36);
-    meta.profiles.push({
-      id,
-      name: n,
-      emoji: "✨",
-      createdAt: new Date().toISOString(),
-    });
-    saveProfileState(id, emptyProfileState());
-    saveMeta();
-    switchProfile(id);
-  }
-
-  function todayKey() {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  }
-
-  function dayOfYear() {
-    const now = new Date();
-    const start = new Date(now.getFullYear(), 0, 0);
-    return Math.floor((now - start) / 86400000);
-  }
-
-  function maybeResetDailyTasks() {
-    const today = todayKey();
-    if (state.lastCheckInDate && state.lastCheckInDate !== today) {
-      state.tasks = { pronounce: false, shadow: false, input: false, output: false };
-      persist();
-    }
-  }
-
-  maybeResetDailyTasks();
+  refreshGameTasks();
 
   function toast(msg) {
     const el = document.getElementById("app-toast");
@@ -248,19 +45,131 @@
     toast._t = setTimeout(() => el.classList.remove("show"), 3200);
   }
 
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/\n/g, "<br>");
+  }
+
+  function escapeAttr(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  }
+
+  function dayOfYear() {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), 0, 0);
+    return Math.floor((now - start) / 86400000);
+  }
+
+  // —— HUD ——
+  function renderHud() {
+    state.level = Gm.levelFromXp(state.xp);
+    const prog = Gm.xpProgress(state.xp);
+    const ln = document.getElementById("hud-level-num");
+    const streak = document.getElementById("streak-count");
+    const xpLabel = document.getElementById("hud-xp-label");
+    const xpNext = document.getElementById("hud-xp-next");
+    const bar = document.getElementById("xp-bar");
+    if (ln) ln.textContent = String(state.level);
+    if (streak) streak.textContent = String(state.streak || 0);
+    if (xpLabel) xpLabel.textContent = `${state.xp || 0} XP`;
+    if (xpNext) xpNext.textContent = `本级 ${prog.into}/${prog.need}`;
+    if (bar) bar.style.width = `${prog.pct}%`;
+  }
+
+  function renderGameTasks() {
+    const root = document.getElementById("game-task-list");
+    const label = document.getElementById("progress-label");
+    if (!root) return;
+    const tasks = state.gameTasks || [];
+    const done = tasks.filter((t) => t.done).length;
+    if (label) label.textContent = `今日任务 ${done}/${tasks.length} · Lv.${state.level} · ${state.xp} XP`;
+    if (!tasks.length) {
+      root.innerHTML = "<li class='hint'>暂无任务，下拉刷新或稍后再来。</li>";
+      return;
+    }
+    root.innerHTML = tasks
+      .map((t) => {
+        const src = t.source === "brother" ? "哥哥" : "ee";
+        return `<li class="game-task-item ${t.done ? "done" : ""}" data-task-id="${escapeAttr(t.id)}">
+          <div class="meta">
+            <strong>${escapeHtml(t.title)}</strong>
+            <span><span class="src-tag">${src}</span> +${t.xp} XP ${t.note ? "· " + escapeHtml(t.note) : ""}</span>
+          </div>
+          <div class="task-actions">
+            <button type="button" class="go" data-go="${escapeAttr(t.link || "#home")}">去练</button>
+            ${
+              t.done
+                ? '<span class="done-label">已完成</span>'
+                : `<button type="button" class="btn btn-primary btn-sm" data-claim="${escapeAttr(t.id)}">领取</button>`
+            }
+          </div>
+        </li>`;
+      })
+      .join("");
+    root.querySelectorAll("[data-go]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        location.hash = btn.getAttribute("data-go");
+      });
+    });
+    root.querySelectorAll("[data-claim]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.getAttribute("data-claim");
+        const res = Gm.completeGameTask(state, id);
+        state = res.state;
+        persist();
+        renderHud();
+        renderGameTasks();
+        if (res.xpGain) {
+          toast((res.leveled ? `升级到 Lv.${state.level}！` : "") + `完成任务 +${res.xpGain} XP`);
+        } else toast("任务已完成");
+      });
+    });
+  }
+
+  function claimModule(module) {
+    const res = Gm.completeTaskByModule(state, module);
+    state = res.state;
+    persist();
+    renderHud();
+    renderGameTasks();
+    if (res.xpGain) toast(`任务完成 +${res.xpGain} XP` + (res.leveled ? ` · 升级 Lv.${state.level}` : ""));
+    else toast("已练习！若任务未勾选，请回首页点「领取」，或今日该模块任务已领完");
+  }
+
   // —— Routing ——
-  const pages = ["home", "path", "pronounce", "chat", "knowledge", "review", "vocab"];
+  const pages = ["home", "path", "pronounce", "chat", "knowledge", "review", "vocab", "challenges", "progress", "admin"];
+
+  function showLearn() {
+    document.getElementById("shell-learn")?.classList.remove("hidden");
+    document.getElementById("shell-admin")?.classList.add("hidden");
+    document.body.classList.remove("mode-admin");
+    document.querySelector(".bottom-nav")?.classList.remove("hidden");
+  }
 
   function navigate(hash) {
-    const id = (hash || "#home").replace("#", "") || "home";
-    const pageId = pages.includes(id) ? id : "home";
-    document.querySelectorAll(".page").forEach((el) => {
+    const raw = (hash || "#home").replace("#", "") || "home";
+    if (raw === "admin" || raw.startsWith("admin/")) {
+      Ad.enterAdminShell();
+      return;
+    }
+    showLearn();
+    refreshGameTasks();
+    const pageId = pages.includes(raw) ? raw : "home";
+    document.querySelectorAll("#shell-learn .page").forEach((el) => {
       el.classList.toggle("active", el.id === `page-${pageId}`);
     });
     document.querySelectorAll(".nav-btn").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.page === pageId);
     });
-    if (pageId === "home") renderHome();
+    renderHud();
+    if (pageId === "home") {
+      renderGameTasks();
+      renderVocabHomePreview();
+    }
     if (pageId === "review") renderReview();
     if (pageId === "path") renderPath();
     if (pageId === "vocab") renderVocabPage();
@@ -269,6 +178,8 @@
       updatePronouncePanel();
     }
     if (pageId === "knowledge") renderLesson();
+    if (pageId === "challenges") renderChallengeMenu();
+    if (pageId === "progress") renderProgressPage();
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -281,121 +192,21 @@
     });
   });
 
-  // —— Home / check-in ——
-  function taskDoneCount() {
-    return Object.values(state.tasks).filter(Boolean).length;
-  }
-
-  function markTask(key, done) {
-    state.tasks[key] = done;
-    const today = todayKey();
-    if (done && taskDoneCount() > 0) {
-      if (state.lastCheckInDate !== today) {
-        const yesterday = new Date();
-        yesterday.setDate(yesterday.getDate() - 1);
-        const yKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
-        if (state.lastCheckInDate === yKey) {
-          state.streak = (state.streak || 0) + 1;
-        } else if (!state.lastCheckInDate) {
-          state.streak = Math.max(state.streak || 0, 1);
-        } else {
-          state.streak = 1;
-        }
-        state.lastCheckInDate = today;
-      }
-    }
-    persist();
-    renderHome();
-  }
-
-  function renderHome() {
-    const count = taskDoneCount();
-    const pct = Math.round((count / 4) * 100);
-    const bar = document.getElementById("progress-bar");
-    const label = document.getElementById("progress-label");
-    const streakEl = document.getElementById("streak-count");
-    if (bar) bar.style.width = `${pct}%`;
-    if (label) label.textContent = `今日进度 ${count}/4（${pct}%）· ${activeProfile().name}`;
-    if (streakEl) streakEl.textContent = String(state.streak || 0);
-
-    Object.keys(state.tasks).forEach((key) => {
-      const row = document.querySelector(`[data-task="${key}"]`);
-      if (!row) return;
-      const cb = row.querySelector('input[type="checkbox"]');
-      if (cb) cb.checked = !!state.tasks[key];
-      row.classList.toggle("done", !!state.tasks[key]);
-    });
-
-    renderVocabHomePreview();
-    renderProfileUI();
-  }
-
-  document.querySelectorAll("[data-task]").forEach((row) => {
-    const key = row.dataset.task;
-    const cb = row.querySelector('input[type="checkbox"]');
-    if (cb) cb.addEventListener("change", () => markTask(key, cb.checked));
+  document.getElementById("btn-open-admin")?.addEventListener("click", () => {
+    location.hash = "#admin";
   });
 
-  // —— Profile UI ——
-  function renderProfileUI() {
-    const p = activeProfile();
-    const nameEl = document.getElementById("learner-name-display");
-    const pill = document.getElementById("learner-pill");
-    if (nameEl) nameEl.textContent = p.name;
-    if (pill) pill.textContent = `${p.emoji || "📘"} ${p.name}`;
-
-    const switcher = document.getElementById("profile-switcher");
-    if (switcher) {
-      switcher.innerHTML = meta.profiles
-        .map(
-          (pr) =>
-            `<button type="button" class="chip ${pr.id === meta.activeProfileId ? "active" : ""}" data-switch-profile="${escapeAttr(pr.id)}">${escapeHtml(pr.emoji || "")} ${escapeHtml(pr.name)}</button>`
-        )
-        .join("");
-      switcher.querySelectorAll("[data-switch-profile]").forEach((btn) => {
-        btn.addEventListener("click", () => switchProfile(btn.dataset.switchProfile));
-      });
-    }
-
-    const input = document.getElementById("learner-rename-input");
-    if (input && document.activeElement !== input) input.value = p.name;
-
-    const warn = document.getElementById("profile-warn");
-    if (warn) {
-      warn.innerHTML =
-        "⚠️ <strong>同一手机/电脑、同一个浏览器</strong>里，若不切换档案，打卡会写进当前档案。<br>" +
-        "哥哥和妹妹请分别点上方「哥哥 / 妹妹」切换；或用<strong>各自的手机</strong>打开本站。<br>" +
-        "数据只存在本机浏览器，不上传云端。换设备请用下方「导出 / 导入」。";
-    }
-  }
-
-  document.getElementById("btn-rename-learner")?.addEventListener("click", () => {
-    const input = document.getElementById("learner-rename-input");
-    renameActiveProfile(input?.value);
-  });
-
-  document.getElementById("btn-add-profile")?.addEventListener("click", () => {
-    const name = window.prompt("新学习者昵称？", "新同学");
-    if (name) createProfile(name);
-  });
-
-  document.getElementById("btn-export-profile")?.addEventListener("click", () => {
-    const payload = {
-      kind: "kouyu-xiaozhan-backup",
-      version: 3,
-      exportedAt: new Date().toISOString(),
-      profile: activeProfile(),
-      state: state,
-      note: "此文件只包含当前学习者档案。导入时会写入当前选中的档案（或新建）。",
-    };
+  // —— Export / Import ——
+  document.getElementById("btn-export-sync")?.addEventListener("click", () => {
+    const profile = meta.profiles.find((p) => p.id === St.SISTER_ID) || { id: St.SISTER_ID, name: "妹妹", emoji: "👧" };
+    const payload = St.exportSisterPayload(profile, state);
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const a = document.createElement("a");
-    const safe = (activeProfile().name || "learner").replace(/[^\w\u4e00-\u9fff-]+/g, "_");
     a.href = URL.createObjectURL(blob);
-    a.download = `口语小站-${safe}-${todayKey()}.json`;
+    a.download = `口语小站-妹妹同步-${Gm.todayKey()}.json`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-    toast("已下载当前档案备份（可传到另一台手机/电脑再导入）");
+    toast("已下载同步包，发给哥哥后他在管理端导入即可看进度");
   });
 
   document.getElementById("btn-import-profile")?.addEventListener("click", () => {
@@ -407,96 +218,195 @@
     e.target.value = "";
     if (!file) return;
     try {
-      const text = await file.text();
-      const data = JSON.parse(text);
+      const data = JSON.parse(await file.text());
       let incoming = null;
-      let nameHint = null;
-      if (data && data.kind === "kouyu-xiaozhan-backup" && data.state) {
-        incoming = normalizeState(data.state);
-        nameHint = data.profile && data.profile.name;
-      } else if (data && (data.tasks || data.wrongBook)) {
-        incoming = normalizeState(data);
+      if (data && data.state && (data.kind === "kouyu-xiaozhan-sister-sync" || data.kind === "kouyu-xiaozhan-backup")) {
+        incoming = St.normalizeState(data.state);
+      } else if (data && (data.tasks || data.wrongBook || data.xp != null)) {
+        incoming = St.normalizeState(data);
       } else {
-        toast("文件格式不对，请选择口语小站导出的 JSON");
+        toast("文件格式不对");
         return;
       }
-      const mode = window.confirm(
-        "确定导入？\n\n【确定】= 覆盖当前档案「" +
-          activeProfile().name +
-          "」\n【取消】= 新建一个档案再导入\n\n（不会改动其它档案）"
-      );
-      if (mode) {
-        state = incoming;
-        persist();
-        refreshAll();
-        toast("已覆盖当前档案数据");
-      } else {
-        const n = nameHint || "导入的学习者";
-        const id = "p-" + Date.now().toString(36);
-        meta.profiles.push({
-          id,
-          name: n,
-          emoji: "📥",
-          createdAt: new Date().toISOString(),
-        });
-        saveProfileState(id, incoming);
-        meta.activeProfileId = id;
-        state = incoming;
-        saveMeta();
-        refreshAll();
-        toast(`已新建档案「${n}」并导入`);
-      }
-    } catch (err) {
-      toast("导入失败：文件无法解析");
+      if (!window.confirm("确定用备份覆盖本机妹妹学习数据？")) return;
+      state = incoming;
+      refreshGameTasks();
+      persist();
+      navigate(location.hash || "#home");
+      toast("已导入妹妹进度");
+    } catch {
+      toast("导入失败");
     }
   });
 
-  function refreshAll() {
-    renderPronounceChips();
-    updatePronouncePanel();
-    renderLesson();
-    renderProfileUI();
-    navigate(location.hash || "#home");
+  // —— Progress page ——
+  function renderProgressPage() {
+    const stats = document.getElementById("progress-stats");
+    const bar = document.getElementById("progress-xp-bar");
+    const prog = Gm.xpProgress(state.xp);
+    if (stats) {
+      stats.textContent = `等级 Lv.${state.level} · 累计 ${state.xp} XP · 连续打卡 ${state.streak || 0} 天 · 徽章 ${(state.rewards || []).length} 枚`;
+    }
+    if (bar) bar.style.width = `${prog.pct}%`;
+    const wall = document.getElementById("badge-wall");
+    if (wall) {
+      const owned = new Set((state.rewards || []).map((r) => r.id));
+      wall.innerHTML = Gm.BADGE_CATALOG.map((b) => {
+        const on = owned.has(b.id);
+        return `<div class="badge-item ${on ? "owned" : "locked"}">${b.emoji}<strong>${escapeHtml(b.name)}</strong><span>${escapeHtml(b.desc)}</span></div>`;
+      }).join("");
+    }
+    const hist = document.getElementById("challenge-history");
+    if (hist) {
+      const list = state.challengeResults || [];
+      hist.innerHTML = list.length
+        ? list
+            .slice(0, 15)
+            .map((c) => {
+              const m = Gm.CHALLENGE_META[c.kind] || { label: c.kind, emoji: "📝" };
+              return `<li>${m.emoji} ${m.label} ${c.correct}/${c.total}（${Math.round(c.ratio * 100)}%）${c.passed ? "✅" : "❌"} +${c.xp}XP</li>`;
+            })
+            .join("")
+        : "<li class='hint'>还没有测验记录，去「挑战」试试周测吧。</li>";
+    }
   }
+
+  // —— Challenges ——
+  let quizKind = null;
+  let quizItems = [];
+
+  function renderChallengeMenu() {
+    const root = document.getElementById("challenge-menu");
+    const quiz = document.getElementById("challenge-quiz");
+    const result = document.getElementById("challenge-result");
+    if (quiz) quiz.classList.add("hidden");
+    if (result) result.classList.add("hidden");
+    if (root) root.classList.remove("hidden");
+    if (!root) return;
+    root.innerHTML = Object.keys(Gm.CHALLENGE_META)
+      .map((k) => {
+        const m = Gm.CHALLENGE_META[k];
+        return `<button type="button" class="challenge-card" data-challenge="${k}">
+          <span class="emoji">${m.emoji}</span>
+          <strong>${m.label}</strong>
+          <span>通过奖励 +${m.xp} XP</span>
+          <span class="hint">正确率 ≥ ${Math.round(m.passRatio * 100)}%</span>
+        </button>`;
+      })
+      .join("");
+    root.querySelectorAll("[data-challenge]").forEach((btn) => {
+      btn.addEventListener("click", () => startQuiz(btn.dataset.challenge));
+    });
+  }
+
+  function startQuiz(kind) {
+    quizKind = kind;
+    quizItems = Gm.buildQuiz(kind);
+    const menu = document.getElementById("challenge-menu");
+    const quiz = document.getElementById("challenge-quiz");
+    const result = document.getElementById("challenge-result");
+    if (menu) menu.classList.add("hidden");
+    if (result) result.classList.add("hidden");
+    if (quiz) quiz.classList.remove("hidden");
+    const title = document.getElementById("quiz-title");
+    const body = document.getElementById("quiz-body");
+    const m = Gm.CHALLENGE_META[kind];
+    if (title) title.textContent = `${m.emoji} ${m.label}（共 ${quizItems.length} 题）`;
+    if (body) {
+      body.innerHTML = quizItems
+        .map(
+          (item, i) => `<div class="quiz-q" data-qi="${i}">
+          <p><strong>Q${i + 1}.</strong> ${escapeHtml(item.q)}</p>
+          <div class="quiz-choices">
+            ${item.choices
+              .map(
+                (c, j) =>
+                  `<label><input type="radio" name="q${i}" value="${j}" /> ${escapeHtml(c)}</label>`
+              )
+              .join("")}
+          </div>
+        </div>`
+        )
+        .join("");
+    }
+  }
+
+  document.getElementById("btn-cancel-quiz")?.addEventListener("click", () => {
+    renderChallengeMenu();
+  });
+
+  document.getElementById("btn-submit-quiz")?.addEventListener("click", () => {
+    if (!quizKind || !quizItems.length) return;
+    const answers = quizItems.map((_, i) => {
+      const checked = document.querySelector(`input[name="q${i}"]:checked`);
+      return checked ? Number(checked.value) : -1;
+    });
+    if (answers.some((a) => a < 0)) {
+      toast("请答完所有题目再交卷");
+      return;
+    }
+    const graded = Gm.gradeChallenge(quizKind, answers);
+    state = Gm.recordChallenge(state, quizKind, graded);
+    persist();
+    renderHud();
+    const quiz = document.getElementById("challenge-quiz");
+    const result = document.getElementById("challenge-result");
+    if (quiz) quiz.classList.add("hidden");
+    if (result) {
+      result.classList.remove("hidden");
+      const m = Gm.CHALLENGE_META[quizKind];
+      const pct = Math.round(graded.ratio * 100);
+      result.innerHTML = `<h3>${graded.passed ? "🎉 挑战通过！" : "💪 再练练还能过"}</h3>
+        <p>${m.label}得分 ${graded.correct}/${graded.total}（${pct}%）· 获得 <strong>+${graded.xp} XP</strong></p>
+        <p class="hint">${graded.passed ? "徽章可能已解锁，去「进度」看看。" : "正确率需 ≥ 60% 才算通过并拿满奖励。"}</p>
+        <div class="quiz-review">${graded.quiz
+          .map(
+            (item, i) =>
+              `<div class="quiz-q"><p>Q${i + 1}. ${escapeHtml(item.q)}</p>
+              <p class="hint">你的答案：${escapeHtml(item.choices[answers[i]])} ${answers[i] === item.answer ? "✅" : "❌ 正确：" + escapeHtml(item.choices[item.answer])}</p>
+              <p class="hint">${escapeHtml(item.tip || "")}</p></div>`
+          )
+          .join("")}</div>
+        <button type="button" class="btn btn-primary" id="btn-quiz-back">返回挑战列表</button>`;
+      document.getElementById("btn-quiz-back")?.addEventListener("click", () => renderChallengeMenu());
+    }
+    toast(graded.passed ? `通过！+${graded.xp} XP` : `已交卷 +${graded.xp} XP`);
+  });
 
   // —— Learning path ——
   const phases = [
     {
       id: 1,
       title: "阶段一 · 发音地基",
-      desc: "元音、辅音、重音节奏；每天 15–20 分钟跟读。重点：/θ/ /ð/ /æ/ /r/ 等难音。",
+      desc: "元音、辅音、重音节奏；每天 15–20 分钟跟读。",
       resources: [
-        { name: "BBC Learning English · Pronunciation（发音）", url: "https://www.bbc.co.uk/learningenglish/english/features/pronunciation", tag: "免费" },
-        { name: "Rachel's English（美音）", url: "https://rachelsenglish.com/", tag: "免费" },
-        { name: "YouGlish 查真实发音", url: "https://youglish.com/", tag: "免费" },
+        { name: "BBC Learning English · Pronunciation", url: "https://www.bbc.co.uk/learningenglish/english/features/pronunciation", tag: "免费" },
+        { name: "Rachel's English", url: "https://rachelsenglish.com/", tag: "免费" },
+        { name: "YouGlish", url: "https://youglish.com/", tag: "免费" },
       ],
     },
     {
       id: 2,
       title: "阶段二 · 跟读与影子跟读",
-      desc: "短句跟读 → 影子跟读（shadowing），建立语感与流利度。",
+      desc: "短句跟读 → 影子跟读（shadowing）。",
       resources: [
-        { name: "VOA Learning English（慢速英语）", url: "https://learningenglish.voanews.com/", tag: "免费" },
-        { name: "ELLLO 分级听力", url: "https://www.elllo.org/", tag: "免费" },
-        { name: "VOA Special English 广播", url: "https://learningenglish.voanews.com/z/1689", tag: "免费" },
+        { name: "VOA Learning English", url: "https://learningenglish.voanews.com/", tag: "免费" },
+        { name: "ELLLO", url: "https://www.elllo.org/", tag: "免费" },
       ],
     },
     {
       id: 3,
       title: "阶段三 · 开口输出",
-      desc: "日记口述、角色扮演、课堂 presentation（演示汇报）一分钟演讲。",
-      resources: [
-        { name: "Cambridge Write & Improve（写作辅助）", url: "https://writeandimprove.com/", tag: "免费" },
-        { name: "italki 话题灵感（可先自练）", url: "https://www.italki.com/en/classroom", tag: "参考" },
-      ],
+      desc: "日记口述、角色扮演、presentation。",
+      resources: [{ name: "Cambridge Write & Improve", url: "https://writeandimprove.com/", tag: "免费" }],
     },
     {
       id: 4,
       title: "阶段四 · 地道与思维",
-      desc: "习语、语块、文学/文化讨论（literature · culture），知识英语。",
+      desc: "习语、语块、文学/文化讨论。",
       resources: [
-        { name: "Oxford Learner's Dictionaries（牛津学习词典）", url: "https://www.oxfordlearnersdictionaries.com/", tag: "免费" },
-        { name: "Crash Course（英文字幕公开课）", url: "https://thecrashcourse.com/", tag: "免费" },
+        { name: "Oxford Learner's Dictionaries", url: "https://www.oxfordlearnersdictionaries.com/", tag: "免费" },
+        { name: "Crash Course", url: "https://thecrashcourse.com/", tag: "免费" },
       ],
     },
   ];
@@ -507,20 +417,15 @@
     root.innerHTML = phases
       .map((p) => {
         const unlocked = p.id <= (state.pathUnlocked || 1);
-        return `
-        <article class="phase ${unlocked ? "unlocked" : "locked"}">
+        return `<article class="phase ${unlocked ? "unlocked" : "locked"}">
           <span class="phase-badge">${unlocked ? "✓ 已解锁" : "🔒 未解锁"} · 阶段 ${p.id}</span>
-          <h3>${p.title}</h3>
-          <p>${p.desc}</p>
+          <h3>${p.title}</h3><p>${p.desc}</p>
           ${
             unlocked
               ? `<ul class="resource-list">${p.resources
-                  .map(
-                    (r) =>
-                      `<li><a href="${r.url}" target="_blank" rel="noopener noreferrer">${escapeHtml(r.name)}<span>${escapeHtml(r.tag)} ↗</span></a></li>`
-                  )
+                  .map((r) => `<li><a href="${r.url}" target="_blank" rel="noopener noreferrer">${escapeHtml(r.name)}<span>${escapeHtml(r.tag)} ↗</span></a></li>`)
                   .join("")}</ul>`
-              : `<p class="hint">完成更多每日打卡后解锁（原型中可点下方按钮提前解锁）。</p>`
+              : `<p class="hint">完成更多任务解锁（演示可点下方按钮）。</p>`
           }
           ${!unlocked ? `<div class="lock-overlay" aria-hidden="true">🔒</div>` : ""}
         </article>`;
@@ -536,19 +441,19 @@
 
   // —— Pronunciation ——
   const pronounceItems = [
-    { id: "th", type: "sound", label: "/θ/ think", word: "think", ipa: "/θɪŋk/", zh: "想；认为", tip: "舌尖轻轻放在上下牙之间，吹气，声带不振动。对比：sink /sɪŋk/（沉没）。", sentence: "I think this is a strong argument.", sentenceZh: "我认为这是一个有力的论点。" },
-    { id: "dh", type: "sound", label: "/ð/ this", word: "this", ipa: "/ðɪs/", zh: "这个", tip: "同 /θ/ 口型，但声带振动。the /ðə/、that /ðæt/ 同理。", sentence: "This theme appears throughout the novel.", sentenceZh: "这个主题贯穿整部小说。" },
-    { id: "ae", type: "sound", label: "/æ/ analyze", word: "analyze", ipa: "/ˈænəlaɪz/", zh: "分析", tip: "第一音节 /æ/ 嘴张大、舌放低；重音在 an-。英式亦可 analyse。", sentence: "Please analyze the writer's tone.", sentenceZh: "请分析作者的语气。" },
-    { id: "r", type: "sound", label: "/r/ really", word: "really", ipa: "/ˈrɪəli/", zh: "真正地；非常", tip: "美式 /r/ 舌身后缩，不要卷成中文「瑞」。口语里常弱读。", sentence: "I really enjoyed that presentation.", sentenceZh: "我真的很喜欢那场演示汇报。" },
-    { id: "discuss", type: "word", label: "discuss 讨论", word: "discuss", ipa: "/dɪˈskʌs/", zh: "讨论", tip: "重音在第二音节；不要说成 discuss about（多余 about）。", sentence: "Shall we discuss the cultural context?", sentenceZh: "我们要不要讨论一下文化语境？" },
-    { id: "argue", type: "word", label: "argue 论证", word: "argue", ipa: "/ˈɑːrɡjuː/", zh: "争论；论证", tip: "academic 语境常指「提出论据」，不一定是吵架。argue that… = 主张……", sentence: "The author argues that language shapes culture.", sentenceZh: "作者主张：语言塑造文化。" },
-    { id: "paraphrase", type: "word", label: "paraphrase 改述", word: "paraphrase", ipa: "/ˈpærəfreɪz/", zh: "释义；改述", tip: "英语专业高频：用自己的话重述，避免抄袭。重音在第一音节。", sentence: "Try to paraphrase the quote in simpler English.", sentenceZh: "试着用更简单的英语改述这句引文。" },
-    { id: "essay", type: "word", label: "essay 论文", word: "essay", ipa: "/ˈeseɪ/", zh: "短文；论文", tip: "重音在第一音节。campus：write an essay（写一篇论文）。", sentence: "My essay is about modern literature.", sentenceZh: "我的论文是关于现代文学的。" },
-    { id: "presentation", type: "word", label: "presentation 汇报", word: "presentation", ipa: "/ˌprezənˈteɪʃn/", zh: "演示；汇报", tip: "重音在 -ta-；课堂常说 give a presentation。", sentence: "I have a presentation on Shakespeare tomorrow.", sentenceZh: "我明天有一场关于莎士比亚的汇报。" },
-    { id: "s1", type: "sentence", label: "寒暄 · Nice to meet you", word: "Nice to meet you", ipa: "/naɪs tə ˈmiːt ju/", zh: "很高兴认识你", tip: "to 弱读成 /tə/；meet you 可连读。正式场合也很常用。", sentence: "Nice to meet you. What are you majoring in?", sentenceZh: "很高兴认识你。你主修什么专业？" },
-    { id: "s2", type: "sentence", label: "课堂 · Could you repeat…", word: "Could you repeat that?", ipa: "/kʊd ju rɪˈpiːt ðæt/", zh: "你能再说一遍吗？", tip: "Could you 比 Can you 稍客气；th 发 /ð/。和外国人交流救命句。", sentence: "Sorry—could you repeat that more slowly?", sentenceZh: "抱歉——你能再说慢一点吗？" },
-    { id: "s3", type: "sentence", label: "观点 · In my opinion", word: "In my opinion", ipa: "/ɪn maɪ əˈpɪnjən/", zh: "在我看来", tip: "opinion 重音在 -pin-。书面/口语都适合表达观点。", sentence: "In my opinion, this metaphor is powerful.", sentenceZh: "在我看来，这个隐喻很有力量。" },
-    { id: "s4", type: "sentence", label: "澄清 · What do you mean", word: "What do you mean by…?", ipa: "/wɒt də ju ˈmiːn baɪ/", zh: "你说……是什么意思？", tip: "do you 弱读；mean 清晰。听不懂外国人时礼貌追问。", sentence: "What do you mean by 'tone' in this text?", sentenceZh: "你说这篇文本里的 tone（语气）是什么意思？" },
+    { id: "th", label: "/θ/ think", word: "think", ipa: "/θɪŋk/", zh: "想；认为", tip: "舌尖轻轻放在上下牙之间，吹气，声带不振动。对比：sink /sɪŋk/（沉没）。", sentence: "I think this is a strong argument.", sentenceZh: "我认为这是一个有力的论点。" },
+    { id: "dh", label: "/ð/ this", word: "this", ipa: "/ðɪs/", zh: "这个", tip: "同 /θ/ 口型，但声带振动。", sentence: "This theme appears throughout the novel.", sentenceZh: "这个主题贯穿整部小说。" },
+    { id: "ae", label: "/æ/ analyze", word: "analyze", ipa: "/ˈænəlaɪz/", zh: "分析", tip: "第一音节 /æ/ 嘴张大；重音在 an-。", sentence: "Please analyze the writer's tone.", sentenceZh: "请分析作者的语气。" },
+    { id: "r", label: "/r/ really", word: "really", ipa: "/ˈrɪəli/", zh: "真正地；非常", tip: "美式 /r/ 舌身后缩。", sentence: "I really enjoyed that presentation.", sentenceZh: "我真的很喜欢那场演示汇报。" },
+    { id: "discuss", label: "discuss 讨论", word: "discuss", ipa: "/dɪˈskʌs/", zh: "讨论", tip: "重音在第二音节；不要 discuss about。", sentence: "Shall we discuss the cultural context?", sentenceZh: "我们要不要讨论一下文化语境？" },
+    { id: "argue", label: "argue 论证", word: "argue", ipa: "/ˈɑːrɡjuː/", zh: "争论；论证", tip: "academic 常指提出论据。argue that… = 主张……", sentence: "The author argues that language shapes culture.", sentenceZh: "作者主张：语言塑造文化。" },
+    { id: "paraphrase", label: "paraphrase 改述", word: "paraphrase", ipa: "/ˈpærəfreɪz/", zh: "释义；改述", tip: "用自己的话重述，避免抄袭。", sentence: "Try to paraphrase the quote in simpler English.", sentenceZh: "试着用更简单的英语改述这句引文。" },
+    { id: "essay", label: "essay 论文", word: "essay", ipa: "/ˈeseɪ/", zh: "短文；论文", tip: "重音在第一音节。", sentence: "My essay is about modern literature.", sentenceZh: "我的论文是关于现代文学的。" },
+    { id: "presentation", label: "presentation 汇报", word: "presentation", ipa: "/ˌprezənˈteɪʃn/", zh: "演示；汇报", tip: "重音在 -ta-。", sentence: "I have a presentation on Shakespeare tomorrow.", sentenceZh: "我明天有一场关于莎士比亚的汇报。" },
+    { id: "s1", label: "寒暄 · Nice to meet you", word: "Nice to meet you", ipa: "/naɪs tə ˈmiːt ju/", zh: "很高兴认识你", tip: "to 弱读成 /tə/。", sentence: "Nice to meet you. What are you majoring in?", sentenceZh: "很高兴认识你。你主修什么专业？" },
+    { id: "s2", label: "课堂 · Could you repeat…", word: "Could you repeat that?", ipa: "/kʊd ju rɪˈpiːt ðæt/", zh: "你能再说一遍吗？", tip: "Could you 比 Can you 稍客气。", sentence: "Sorry—could you repeat that more slowly?", sentenceZh: "抱歉——你能再说慢一点吗？" },
+    { id: "s3", label: "观点 · In my opinion", word: "In my opinion", ipa: "/ɪn maɪ əˈpɪnjən/", zh: "在我看来", tip: "opinion 重音在 -pin-。", sentence: "In my opinion, this metaphor is powerful.", sentenceZh: "在我看来，这个隐喻很有力量。" },
+    { id: "s4", label: "澄清 · What do you mean", word: "What do you mean by…?", ipa: "/wɒt də ju ˈmiːn baɪ/", zh: "你说……是什么意思？", tip: "听不懂时礼貌追问。", sentence: "What do you mean by 'tone' in this text?", sentenceZh: "你说这篇文本里的 tone（语气）是什么意思？" },
   ];
 
   let currentPronounce = pronounceItems[0];
@@ -561,10 +466,7 @@
     const row = document.getElementById("pronounce-chips");
     if (!row) return;
     row.innerHTML = pronounceItems
-      .map(
-        (item) =>
-          `<button type="button" class="chip ${item.id === currentPronounce.id ? "active" : ""}" data-pronounce="${item.id}">${escapeHtml(item.label)}</button>`
-      )
+      .map((item) => `<button type="button" class="chip ${item.id === currentPronounce.id ? "active" : ""}" data-pronounce="${item.id}">${escapeHtml(item.label)}</button>`)
       .join("");
     row.querySelectorAll("[data-pronounce]").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -584,9 +486,7 @@
     const sz = document.getElementById("p-sentence-zh");
     if (w) w.textContent = currentPronounce.word;
     if (ipa) ipa.textContent = currentPronounce.ipa;
-    if (zhEl) {
-      zhEl.innerHTML = `<span class="gloss-label">释义</span><span class="gloss-text">${escapeHtml(currentPronounce.zh || "—")}</span>`;
-    }
+    if (zhEl) zhEl.innerHTML = `<span class="gloss-label">释义</span><span class="gloss-text">${escapeHtml(currentPronounce.zh || "—")}</span>`;
     if (tip) tip.textContent = currentPronounce.tip;
     if (sent) sent.textContent = currentPronounce.sentence;
     if (sz) sz.textContent = currentPronounce.sentenceZh || "";
@@ -603,7 +503,7 @@
   function speakText(text) {
     if (!window.speechSynthesis) {
       const status = document.getElementById("pronounce-status");
-      if (status) status.textContent = "当前浏览器不支持语音合成，请自行朗读对照。";
+      if (status) status.textContent = "当前浏览器不支持语音合成。";
       return;
     }
     window.speechSynthesis.cancel();
@@ -611,28 +511,25 @@
     u.lang = "en-US";
     u.rate = 0.9;
     window.speechSynthesis.speak(u);
-    const status = document.getElementById("pronounce-status");
-    if (status) status.textContent = "正在播放原音提示…";
   }
 
   document.getElementById("btn-play-original")?.addEventListener("click", () => {
     speakText(currentPronounce.sentence || currentPronounce.word);
-    markTask("shadow", true);
+    state.tasks.shadow = true;
+    persist();
   });
 
   async function startRecording() {
     const status = document.getElementById("pronounce-status");
     const btn = document.getElementById("btn-record");
     recordedChunks = [];
-
     if (!navigator.mediaDevices?.getUserMedia) {
       isRecording = true;
       btn?.classList.add("recording");
       if (btn) btn.textContent = "⏹ 停止（模拟）";
-      if (status) status.textContent = "模拟录音中…再点一次结束（本环境无麦克风权限时使用）。";
+      if (status) status.textContent = "模拟录音中…再点一次结束。";
       return;
     }
-
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaRecorder = new MediaRecorder(stream);
@@ -644,22 +541,22 @@
         const blob = new Blob(recordedChunks, { type: "audio/webm" });
         if (recordedUrl) URL.revokeObjectURL(recordedUrl);
         recordedUrl = URL.createObjectURL(blob);
-        if (status) status.textContent = "录音完成！可以点「播放我的录音」对比。";
-        const score = 72 + Math.floor(Math.random() * 24);
+        if (status) status.textContent = "录音完成！可播放对比。";
         const scoreEl = document.getElementById("mock-score");
-        if (scoreEl) scoreEl.textContent = `${score}`;
-        markTask("pronounce", true);
+        if (scoreEl) scoreEl.textContent = String(72 + Math.floor(Math.random() * 24));
+        state.tasks.pronounce = true;
+        persist();
       };
       mediaRecorder.start();
       isRecording = true;
       btn?.classList.add("recording");
       if (btn) btn.textContent = "⏹ 停止录音";
-      if (status) status.textContent = "录音中…大声清晰地读出来。";
-    } catch (err) {
+      if (status) status.textContent = "录音中…";
+    } catch {
       isRecording = true;
       btn?.classList.add("recording");
       if (btn) btn.textContent = "⏹ 停止（模拟）";
-      if (status) status.textContent = "无法使用麦克风，已切换模拟录音。再点一次结束。";
+      if (status) status.textContent = "无法使用麦克风，已切换模拟。";
     }
   }
 
@@ -669,16 +566,16 @@
     isRecording = false;
     btn?.classList.remove("recording");
     if (btn) btn.textContent = "🎤 开始录音";
-
     if (mediaRecorder && mediaRecorder.state !== "inactive") {
       mediaRecorder.stop();
       mediaRecorder = null;
       return;
     }
-    if (status) status.textContent = "模拟录音完成！（真实环境将保存你的音频）评分仅供演示。";
+    if (status) status.textContent = "模拟录音完成。";
     const scoreEl = document.getElementById("mock-score");
     if (scoreEl) scoreEl.textContent = String(78 + Math.floor(Math.random() * 18));
-    markTask("pronounce", true);
+    state.tasks.pronounce = true;
+    persist();
   }
 
   document.getElementById("btn-record")?.addEventListener("click", () => {
@@ -688,13 +585,8 @@
 
   document.getElementById("btn-play-mine")?.addEventListener("click", () => {
     const status = document.getElementById("pronounce-status");
-    if (recordedUrl) {
-      const audio = new Audio(recordedUrl);
-      audio.play();
-      if (status) status.textContent = "正在播放你的录音…";
-    } else if (status) {
-      status.textContent = "还没有录音。请先点「开始录音」。";
-    }
+    if (recordedUrl) new Audio(recordedUrl).play();
+    else if (status) status.textContent = "还没有录音。";
   });
 
   document.getElementById("btn-add-wrong")?.addEventListener("click", () => {
@@ -712,79 +604,31 @@
       });
       persist();
     }
-    const status = document.getElementById("pronounce-status");
-    if (status) {
-      status.textContent = exists ? "错音本里已有这个词啦。" : "已加入错音本，可去「复习」里练。";
-    }
+    toast(exists ? "错音本里已有" : "已加入错音本");
   });
+
+  document.getElementById("btn-claim-pronounce")?.addEventListener("click", () => claimModule("pronounce"));
 
   // —— Chat ——
   const cannedReplies = [
-    {
-      test: /hello|hi\b|hey|你好/i,
-      reply:
-        "教练 ee：Hi! Great to see you. 很高兴见到你～\n试着完整说：\n\"Hi! I'm practicing English today.\"\n（嗨！我今天在练习英语。）\n\n📌 关键词\n• practice /ˈpræktɪs/ — 练习\n• today /təˈdeɪ/ — 今天",
-    },
-    {
-      test: /how are you|how's it going/i,
-      reply:
-        "教练 ee：Nice question! 好问题！\n更自然的回答：\n\"I'm good, thanks! A bit tired but excited to practice.\"\n（我挺好的，谢谢！有点累，但很想练习。）\n\n📌 关键词\n• excited /ɪkˈsaɪtɪd/ — 兴奋的；期待的\n• a bit — 有一点（口语）",
-    },
-    {
-      test: /i go to school yesterday|昨天.*图书馆|went to/i,
-      reply:
-        "教练 ee：意思我懂！时态小修正：\n❌ I go to school yesterday\n✅ I went to school yesterday.\n（我昨天去学校了。）\n因为有 yesterday（昨天），要用过去式 went。\n\n📌 关键词\n• went /went/ — go 的过去式：去\n• yesterday /ˈjestərdeɪ/ — 昨天",
-    },
-    {
-      test: /think|纠音|发音|\/θ\//i,
-      reply:
-        "教练 ee：练 /θ/ 很棒！\nTip: tongue between teeth, blow air — think /θɪŋk/（想；认为）。\n跟我读：\"I think this Thursday is free.\"\n（我觉得这个星期四有空。）\n\n📌 关键词\n• think /θɪŋk/ — 想；认为\n• Thursday /ˈθɜːrzdeɪ/ — 星期四",
-    },
-    {
-      test: /discuss|argue|essay|presentation|paraphrase|论文|汇报|改述/i,
-      reply:
-        "教练 ee：英语专业高频词练起来！\n\n📌 校园 / 学术词\n• discuss /dɪˈskʌs/ — 讨论（不要 discuss about）\n• argue /ˈɑːrɡjuː/ — 论证；主张（argue that…）\n• paraphrase /ˈpærəfreɪz/ — 改述；释义\n• essay /ˈeseɪ/ — 短文；论文\n• presentation /ˌprezənˈteɪʃn/ — 演示；汇报\n\n试着写一句：\"I'd like to discuss…\"（我想讨论……）发给我改！",
-    },
-    {
-      test: /cell|细胞|llm|大模型|python|文学|literature|culture|历史/i,
-      reply:
-        "教练 ee：知识+英语模式开启！\n用简单英语说：\n\"A cell is the basic unit of life.\"（细胞是生命的基本单位。）\n或 \"Literature helps us understand culture.\"（文学帮助我们理解文化。）\n\n📌 关键词\n• basic unit — 基本单位\n• literature /ˈlɪtrətʃər/ — 文学\n• culture /ˈkʌltʃər/ — 文化",
-    },
-    {
-      test: /foreigner|外国人|交流|conversation|流利|fluent/i,
-      reply:
-        "教练 ee：和外国人聊天救命句 💬\n\n📌 实用语块\n• Nice to meet you. — 很高兴认识你\n• Could you repeat that? — 你能再说一遍吗？\n• What do you mean by…? — 你说……是什么意思？\n• In my opinion… — 在我看来……\n• I'm not sure I follow. — 我好像没跟上",
-    },
-    {
-      test: /help|帮助|不会|怎么说/i,
-      reply:
-        "教练 ee：没问题！你可以：\n1) 用中文说意思，我帮你译成自然英文\n2) 直接写英文，我帮你改得更地道\n\n📌 提问句式\n• How do you say … in English? — ……用英语怎么说？\n• Is it natural to say …? — 说……自然吗？",
-    },
+    { test: /hello|hi\b|hey|你好/i, reply: "教练 ee：Hi! Great to see you.\n\"Hi! I'm practicing English today.\"\n\n📌 practice — 练习 · today — 今天" },
+    { test: /how are you|how's it going/i, reply: "教练 ee：Nice!\n\"I'm good, thanks! A bit tired but excited to practice.\"\n\n📌 excited — 兴奋的；期待的" },
+    { test: /i go to school yesterday|昨天|went to/i, reply: "教练 ee：时态修正：\n❌ I go … yesterday\n✅ I went to school yesterday.\n\n📌 went — go 的过去式 · yesterday — 昨天" },
+    { test: /think|纠音|发音|\/θ\//i, reply: "教练 ee：think /θɪŋk/ — 想；认为\n舌尖在齿间吹气。\n\"I think this Thursday is free.\"" },
+    { test: /discuss|argue|essay|presentation|paraphrase|论文|汇报|改述/i, reply: "教练 ee：学术词\n• discuss — 讨论\n• argue — 论证\n• paraphrase — 改述\n• essay — 论文\n• presentation — 汇报" },
+    { test: /foreigner|外国人|交流|conversation|流利|fluent/i, reply: "教练 ee：救命句\n• Could you repeat that? — 你能再说一遍吗？\n• What do you mean by…? — 你说……是什么意思？\n• In my opinion… — 在我看来……" },
+    { test: /help|帮助|不会|怎么说/i, reply: "教练 ee：How do you say … in English? — ……用英语怎么说？" },
   ];
-
-  const defaultCoachReply =
-    "教练 ee：收到！（原型阶段我用预设回复）\n建议你把句子写完整。例如：\n\"Yesterday I went to the library and read for two hours.\"\n（昨天我去图书馆读了两个小时。）\n\n📌 关键词\n• library /ˈlaɪbreri/ — 图书馆\n• yesterday /ˈjestərdeɪ/ — 昨天";
+  const defaultCoachReply = "教练 ee：收到！试着写完整句子，例如：\n\"Yesterday I went to the library.\"\n\n📌 library — 图书馆 · yesterday — 昨天";
 
   function appendBubble(who, text) {
     const log = document.getElementById("chat-log");
     if (!log) return;
     const div = document.createElement("div");
     div.className = `bubble ${who}`;
-    div.innerHTML = `<div class="who">${who === "bot" ? "教练 ee" : activeProfile().name}</div>${escapeHtml(text)}`;
+    div.innerHTML = `<div class="who">${who === "bot" ? "教练 ee" : "妹妹"}</div>${escapeHtml(text)}`;
     log.appendChild(div);
     log.scrollTop = log.scrollHeight;
-  }
-
-  function escapeHtml(s) {
-    return String(s)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/\n/g, "<br>");
-  }
-
-  function escapeAttr(s) {
-    return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
   }
 
   function coachReply(userText) {
@@ -798,9 +642,11 @@
     const trimmed = (text || "").trim();
     if (!trimmed) return;
     appendBubble("user", trimmed);
-    markTask("output", true);
+    state.tasks.output = true;
+    persist();
     setTimeout(() => {
       appendBubble("bot", coachReply(trimmed));
+      claimModule("chat");
     }, 400);
   }
 
@@ -816,12 +662,11 @@
     btn.addEventListener("click", () => sendChat(btn.dataset.quick));
   });
 
-  // —— Knowledge lessons ——
+  // —— Knowledge ——
   const lessons = {
     cell: {
       title: "What is a cell?（细胞是什么？）",
-      step1:
-        "A cell is the basic unit of life. All living things are made of cells. Some tiny living things have only one cell. Plants and animals have many cells.",
+      step1: "A cell is the basic unit of life. All living things are made of cells. Some tiny living things have only one cell. Plants and animals have many cells.",
       step1Zh: "细胞是生命的基本单位。所有生物都由细胞构成。有些微小生物只有一个细胞。植物和动物有许多细胞。",
       phrases: [
         { en: "basic unit of life", zh: "生命的基本单位" },
@@ -829,12 +674,11 @@
         { en: "made of cells", zh: "由细胞构成" },
         { en: "plants and animals", zh: "植物和动物" },
       ],
-      retell: "用英语复述：细胞是什么？尽量用上 basic unit（基本单位）/ living things（生物）。",
+      retell: "用英语复述：细胞是什么？尽量用上 basic unit / living things。",
     },
     llm: {
       title: "What is an LLM?（大模型是什么？）",
-      step1:
-        "An LLM is a Large Language Model. It is a kind of AI. It reads lots of text and learns patterns. Then it can write sentences, answer questions, and help you practice English.",
+      step1: "An LLM is a Large Language Model. It is a kind of AI. It reads lots of text and learns patterns. Then it can write sentences, answer questions, and help you practice English.",
       step1Zh: "LLM 是大型语言模型。它是一种人工智能。它阅读大量文本并学习模式。然后它可以写句子、回答问题，并帮你练习英语。",
       phrases: [
         { en: "large language model", zh: "大型语言模型" },
@@ -842,12 +686,11 @@
         { en: "learn patterns", zh: "学习模式/规律" },
         { en: "answer questions", zh: "回答问题" },
       ],
-      retell: "用英语复述：大模型是什么？可以说 It is an AI that...（它是一种……的人工智能）",
+      retell: "用英语复述：大模型是什么？可以说 It is an AI that...",
     },
     python: {
       title: "Hello, Python!（你好，Python！）",
-      step1:
-        'Python is a popular programming language. It is friendly for beginners. You can write print("Hello") to show a message. People use Python for websites, data, and AI.',
+      step1: 'Python is a popular programming language. It is friendly for beginners. You can write print("Hello") to show a message. People use Python for websites, data, and AI.',
       step1Zh: "Python 是一种流行的编程语言。它对初学者很友好。你可以写 print(\"Hello\") 来显示一条消息。人们用 Python 做网站、数据和人工智能。",
       phrases: [
         { en: "programming language", zh: "编程语言" },
@@ -855,12 +698,11 @@
         { en: "print a message", zh: "打印/显示一条消息" },
         { en: "used for AI", zh: "用于人工智能" },
       ],
-      retell: "用英语复述：Python 是什么？为什么适合初学者（beginners）？",
+      retell: "用英语复述：Python 是什么？为什么适合初学者？",
     },
     literature: {
       title: "What is literature?（文学是什么？）",
-      step1:
-        "Literature means written works with artistic value — poems, novels, and plays. When we study literature, we discuss themes, characters, and the writer's style. It also helps us understand culture and history.",
+      step1: "Literature means written works with artistic value — poems, novels, and plays. When we study literature, we discuss themes, characters, and the writer's style. It also helps us understand culture and history.",
       step1Zh: "文学指具有艺术价值的书面作品——诗歌、小说和戏剧。学习文学时，我们讨论主题、人物和作者风格。它也帮助我们理解文化与历史。",
       phrases: [
         { en: "artistic value", zh: "艺术价值" },
@@ -868,7 +710,7 @@
         { en: "writer's style", zh: "作者的风格" },
         { en: "understand culture", zh: "理解文化" },
       ],
-      retell: "用英语复述：文学是什么？可提到 poems（诗歌）/ novels（小说）/ themes（主题）。",
+      retell: "用英语复述：文学是什么？可提到 poems / novels / themes。",
     },
   };
 
@@ -880,16 +722,11 @@
     const title = document.getElementById("lesson-title");
     const enEl = document.getElementById("lesson-en");
     if (title) title.textContent = L.title;
-    if (enEl) {
-      enEl.innerHTML = `${escapeHtml(L.step1)}<span class="lesson-zh-block">${escapeHtml(L.step1Zh || "")}</span>`;
-    }
+    if (enEl) enEl.innerHTML = `${escapeHtml(L.step1)}<span class="lesson-zh-block">${escapeHtml(L.step1Zh || "")}</span>`;
     const phrasesEl = document.getElementById("lesson-phrases");
     if (phrasesEl) {
       phrasesEl.innerHTML = L.phrases
-        .map((p) => {
-          if (typeof p === "string") return `<span class="phrase-chip">${escapeHtml(p)}</span>`;
-          return `<span class="phrase-chip"><strong>${escapeHtml(p.en)}</strong><em>${escapeHtml(p.zh)}</em></span>`;
-        })
+        .map((p) => `<span class="phrase-chip"><strong>${escapeHtml(p.en)}</strong><em>${escapeHtml(p.zh)}</em></span>`)
         .join("");
     }
     const prompt = document.getElementById("lesson-retell-prompt");
@@ -910,9 +747,9 @@
 
   document.getElementById("btn-shadow-phrases")?.addEventListener("click", () => {
     const L = lessons[currentLesson];
-    const text = L.phrases.map((p) => (typeof p === "string" ? p : p.en)).join(". ");
-    speakText(text);
-    markTask("shadow", true);
+    speakText(L.phrases.map((p) => p.en).join(". "));
+    state.tasks.shadow = true;
+    persist();
   });
 
   document.getElementById("btn-save-retell")?.addEventListener("click", () => {
@@ -923,13 +760,14 @@
       return;
     }
     state.retells[currentLesson] = text;
+    state.tasks.input = true;
+    state.tasks.output = true;
     persist();
-    markTask("input", true);
-    markTask("output", true);
-    if (status) status.textContent = `已保存到「${activeProfile().name}」本机档案。可复制到「对话」让教练改。`;
+    claimModule("knowledge");
+    if (status) status.textContent = "已保存复述。";
   });
 
-  // —— 词汇本：每条词各自独立、正确的中文释义（禁止复制粘贴同一句） ——
+  // —— Vocab ——
   const vocabThemes = [
     {
       id: "campus-talk",
@@ -1001,18 +839,6 @@
     },
   ];
 
-  // Sanity: each word in a theme must have its own zh
-  vocabThemes.forEach((t) => {
-    const seen = new Map();
-    t.words.forEach((w) => {
-      if (!w.zh) console.warn("[口语小站] missing zh:", t.id, w.word);
-      if (seen.has(w.zh) && seen.get(w.zh) !== w.word) {
-        console.warn("[口语小站] duplicate zh in theme", t.id, w.zh, "for", seen.get(w.zh), "and", w.word);
-      }
-      seen.set(w.zh, w.word);
-    });
-  });
-
   function getTodayTheme() {
     return vocabThemes[dayOfYear() % vocabThemes.length];
   }
@@ -1031,14 +857,8 @@
         <strong class="vocab-word">${escapeHtml(item.word)}</strong>
         <span class="vocab-ipa">${escapeHtml(item.ipa)}</span>
       </div>
-      <div class="vocab-zh" data-zh-for="${escapeAttr(item.word)}">
-        <span class="gloss-label">释义</span>
-        <span class="gloss-text">${escapeHtml(item.zh)}</span>
-      </div>
-      <div class="vocab-ex">
-        <div class="en">${escapeHtml(item.exampleEn)}</div>
-        <div class="zh">${escapeHtml(item.exampleZh)}</div>
-      </div>
+      <div class="vocab-zh"><span class="gloss-label">释义</span><span class="gloss-text">${escapeHtml(item.zh)}</span></div>
+      <div class="vocab-ex"><div class="en">${escapeHtml(item.exampleEn)}</div><div class="zh">${escapeHtml(item.exampleZh)}</div></div>
       <button type="button" class="btn btn-ghost btn-sm vocab-speak" data-speak="${escapeAttr(item.word)}">🔊 听发音</button>
     </article>`;
   }
@@ -1069,19 +889,13 @@
     if (!root) return;
     const theme = getActiveVocabTheme();
     if (themeEl) themeEl.textContent = theme.title;
-    if (hint) {
-      hint.textContent = `主题「${theme.tag}」· 共 ${theme.words.length} 条 · 每条释义相互独立 · 适合英语专业口语与课堂（约 B1–B2）`;
-    }
+    if (hint) hint.textContent = `主题「${theme.tag}」· 共 ${theme.words.length} 条 · 每条释义相互独立`;
     root.innerHTML = theme.words.map((w) => vocabCardHtml(w)).join("");
     bindVocabSpeak(root);
-
     const switcher = document.getElementById("vocab-theme-switch");
     if (switcher) {
       switcher.innerHTML = vocabThemes
-        .map(
-          (t) =>
-            `<button type="button" class="chip ${t.id === theme.id ? "active" : ""}" data-theme-id="${t.id}">${escapeHtml(t.tag)}</button>`
-        )
+        .map((t) => `<button type="button" class="chip ${t.id === theme.id ? "active" : ""}" data-theme-id="${t.id}">${escapeHtml(t.tag)}</button>`)
         .join("");
       switcher.querySelectorAll("[data-theme-id]").forEach((btn) => {
         btn.addEventListener("click", () => {
@@ -1103,7 +917,7 @@
         word: w.word,
         ipa: w.ipa,
         zh: w.zh,
-        tip: `发音提示：仔细听重音，对照 IPA ${w.ipa}`,
+        tip: `发音提示：对照 IPA ${w.ipa}`,
         exampleEn: w.exampleEn,
         exampleZh: w.exampleZh,
         due: 0,
@@ -1112,14 +926,12 @@
     });
     persist();
     const status = document.getElementById("vocab-add-status");
-    if (status) {
-      status.textContent = added
-        ? `已把 ${added} 个词加入「${activeProfile().name}」的复习本。`
-        : "这些词已经在当前档案的复习本里啦。";
-    }
+    if (status) status.textContent = added ? `已加入 ${added} 个词` : "这些词已在复习本里";
   });
 
-  // —— Review / SRS（正面先藏释义，翻面再看中文） ——
+  document.getElementById("btn-claim-vocab")?.addEventListener("click", () => claimModule("vocab"));
+
+  // —— Review ——
   function renderReview() {
     const card = document.getElementById("flashcard");
     const empty = document.getElementById("review-empty");
@@ -1134,22 +946,19 @@
     empty.style.display = "none";
     card.style.display = "flex";
     srs.style.display = "grid";
-
     if (state.reviewIndex >= state.wrongBook.length) state.reviewIndex = 0;
     const item = state.wrongBook[state.reviewIndex];
     card.classList.remove("revealed");
     document.getElementById("fc-word").textContent = item.word;
     document.getElementById("fc-ipa").textContent = item.ipa;
     const zhEl = document.getElementById("fc-zh");
-    if (zhEl) {
-      zhEl.innerHTML = `<span class="gloss-label">释义</span><span class="gloss-text">${escapeHtml(item.zh || "（暂无）")}</span>`;
-    }
+    if (zhEl) zhEl.innerHTML = `<span class="gloss-label">释义</span><span class="gloss-text">${escapeHtml(item.zh || "（暂无）")}</span>`;
     const tipParts = [];
     if (item.tip) tipParts.push(item.tip);
     if (item.exampleEn) tipParts.push(`例句：${item.exampleEn}`);
     if (item.exampleZh) tipParts.push(`译文：${item.exampleZh}`);
     document.getElementById("fc-tip").textContent = tipParts.join("\n") || "（暂无提示）";
-    document.getElementById("review-count").textContent = `${activeProfile().name} · ${state.reviewIndex + 1} / ${state.wrongBook.length}`;
+    document.getElementById("review-count").textContent = `妹妹 · ${state.reviewIndex + 1} / ${state.wrongBook.length}`;
   }
 
   function toggleFlashcard() {
@@ -1189,11 +998,12 @@
   document.getElementById("btn-again")?.addEventListener("click", () => srsRate("again"));
   document.getElementById("btn-hard")?.addEventListener("click", () => srsRate("hard"));
   document.getElementById("btn-good")?.addEventListener("click", () => srsRate("good"));
+  document.getElementById("btn-claim-review")?.addEventListener("click", () => claimModule("review"));
 
   // —— Init ——
+  Ad.bindAdmin();
   renderPronounceChips();
   updatePronouncePanel();
   renderLesson();
-  renderProfileUI();
   navigate(location.hash || "#home");
 })();
