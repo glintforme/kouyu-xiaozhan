@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#e07a5f" />
+  <title>口语小站 · 从发音到流利</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <a class="brand" href="#home" data-go="#home" aria-label="回到首页">
+      <div class="brand-mark">口</div>
+      <div>
+        <h1>口语小站</h1>
+        <p>从发音到流利，有人陪你练</p>
+      </div>
+    </a>
+    <div class="streak-pill" title="连续打卡天数">🔥 <span id="streak-count">0</span> 天</div>
+  </header>
+
+  <main class="container">
+    <!-- 首页 / 今日打卡 -->
+    <section id="page-home" class="page active">
+      <div class="hero">
+        <h2>今天也来练开口 ✨</h2>
+        <p class="sub">每天四件事：发音 · 跟读 · 输入 · 输出。完成一项就打勾，积少成多。</p>
+        <div class="progress-wrap" aria-hidden="true">
+          <div id="progress-bar" class="progress-bar"></div>
+        </div>
+        <p id="progress-label" class="progress-label">今日进度 0/4（0%）</p>
+      </div>
+
+      <div class="card">
+        <h3>📋 今日任务</h3>
+        <p class="hint">点右侧「去练」会跳到对应模块；完成后回来勾选也可以。</p>
+        <ul class="task-list">
+          <li class="task-item" data-task="pronounce">
+            <input type="checkbox" id="task-pronounce" aria-label="完成发音练习" />
+            <div class="meta">
+              <strong>发音</strong>
+              <span>练一个音素或难词，录音对比</span>
+            </div>
+            <button type="button" class="go" data-go="#pronounce">去练</button>
+          </li>
+          <li class="task-item" data-task="shadow">
+            <input type="checkbox" id="task-shadow" aria-label="完成跟读" />
+            <div class="meta">
+              <strong>跟读</strong>
+              <span>听原音，影子跟读一句</span>
+            </div>
+            <button type="button" class="go" data-go="#pronounce">去练</button>
+          </li>
+          <li class="task-item" data-task="input">
+            <input type="checkbox" id="task-input" aria-label="完成输入" />
+            <div class="meta">
+              <strong>输入</strong>
+              <span>读一段知识微课英文讲解</span>
+            </div>
+            <button type="button" class="go" data-go="#knowledge">去读</button>
+          </li>
+          <li class="task-item" data-task="output">
+            <input type="checkbox" id="task-output" aria-label="完成输出" />
+            <div class="meta">
+              <strong>输出</strong>
+              <span>和教练 ee 说一句英文，或复述微课</span>
+            </div>
+            <button type="button" class="go" data-go="#chat">去说</button>
+          </li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>🎧 今晚磨耳朵</h3>
+        <p class="hint">睡前或通勤可放 B 站慢速 / 公开课，不用盯屏，当背景听就行。手机点开即可。</p>
+        <ul class="resource-list ear-list">
+          <li><a href="https://www.bilibili.com/video/BV1164y1m7Kw/" target="_blank" rel="noopener noreferrer">BBC 六分钟英语合集<span>磨耳朵 ↗</span></a></li>
+          <li><a href="https://www.bilibili.com/video/BV1UY411n7LH/" target="_blank" rel="noopener noreferrer">慢速英语 / VOA 向<span>磨耳朵 ↗</span></a></li>
+          <li><a href="https://www.bilibili.com/video/BV1wHPLeUE8r/" target="_blank" rel="noopener noreferrer">国外公开课精选<span>公开课 ↗</span></a></li>
+          <li><a href="https://www.bilibili.com/video/BV1WVHHzzEwk/" target="_blank" rel="noopener noreferrer">日常口语听力材料<span>磨耳朵 ↗</span></a></li>
+          <li><a href="https://www.bilibili.com/video/BV1r3411u7RP/" target="_blank" rel="noopener noreferrer">英语演讲 / TED 向<span>输入 ↗</span></a></li>
+          <li><a href="https://www.bilibili.com/video/BV1sW411a7nM/" target="_blank" rel="noopener noreferrer">发音与跟读合集<span>跟读 ↗</span></a></li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>🚀 快捷入口</h3>
+        <div class="btn-row">
+          <button type="button" class="btn btn-primary" data-go="#path">学习路径</button>
+          <button type="button" class="btn btn-secondary" data-go="#review">错音本复习</button>
+          <button type="button" class="btn btn-ghost" data-go="#knowledge">知识+英语</button>
+        </div>
+      </div>
+
+      <p class="footer-note">Phase 1 原型 · 数据保存在本机浏览器 · 教练 ee 后期可接真实 AI</p>
+    </section>
+
+    <!-- 学习路径 -->
+    <section id="page-path" class="page">
+      <h2 class="section-title">学习路径</h2>
+      <p class="hint" style="margin-bottom:12px;color:var(--muted);font-size:14px;">四阶段从发音到地道表达。原型默认解锁阶段一，可点下方按钮提前解锁后面阶段。</p>
+      <div id="phase-grid" class="phase-grid"></div>
+      <div class="btn-row" style="margin-top:12px;">
+        <button type="button" id="unlock-next" class="btn btn-secondary">🔓 解锁下一阶段（演示）</button>
+      </div>
+
+      <div class="card" style="margin-top:16px;">
+        <h3>🎧 磨耳朵推荐（B 站）</h3>
+        <p class="hint">与首页相同列表，方便在路径页顺手打开。</p>
+        <ul class="resource-list">
+          <li><a href="https://www.bilibili.com/video/BV1164y1m7Kw/" target="_blank" rel="noopener noreferrer">BV1164y1m7Kw · BBC 向<span>↗</span></a></li>
+          <li><a href="https://www.bilibili.com/video/BV1UY411n7LH/" target="_blank" rel="noopener noreferrer">BV1UY411n7LH · 慢速英语<span>↗</span></a></li>
+          <li><a href="https://www.bilibili.com/video/BV1wHPLeUE8r/" target="_blank" rel="noopener noreferrer">BV1wHPLeUE8r · 公开课<span>↗</span></a></li>
+          <li><a href="https://www.bilibili.com/video/BV1WVHHzzEwk/" target="_blank" rel="noopener noreferrer">BV1WVHHzzEwk · 日常听力<span>↗</span></a></li>
+          <li><a href="https://www.bilibili.com/video/BV1r3411u7RP/" target="_blank" rel="noopener noreferrer">BV1r3411u7RP · 演讲<span>↗</span></a></li>
+          <li><a href="https://www.bilibili.com/video/BV1sW411a7nM/" target="_blank" rel="noopener noreferrer">BV1sW411a7nM · 发音跟读<span>↗</span></a></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 练发音 -->
+    <section id="page-pronounce" class="page">
+      <h2 class="section-title">练发音</h2>
+      <p class="hint" style="margin-bottom:12px;color:var(--muted);font-size:14px;">选一个音或句子 → 看 IPA 提示 → 听原音 → 录音对比。评分目前为演示分数。</p>
+      <div id="pronounce-chips" class="chip-row"></div>
+
+      <div class="ipa-box">
+        <div id="p-word" class="word">think</div>
+        <div id="p-ipa" class="ipa">/θɪŋk/</div>
+        <div id="p-tip" class="tip">舌尖轻轻放在上下牙之间，吹气，声带不振动。</div>
+      </div>
+
+      <div class="card">
+        <h3>跟读句子</h3>
+        <p id="p-sentence" style="font-size:16px;font-weight:600;margin-bottom:8px;">I think this is the right thing.</p>
+        <div class="btn-row">
+          <button type="button" id="btn-play-original" class="btn btn-secondary">🔊 播放原音</button>
+          <button type="button" id="btn-record" class="btn btn-primary">🎤 开始录音</button>
+          <button type="button" id="btn-play-mine" class="btn btn-secondary">▶️ 播放我的录音</button>
+          <button type="button" id="btn-add-wrong" class="btn btn-ghost">➕ 加入错音本</button>
+        </div>
+        <div class="compare-panel">
+          <div class="compare-box">
+            <strong>原音</strong>
+            <span style="font-size:12px;color:var(--muted);">浏览器语音合成</span>
+          </div>
+          <div class="compare-box">
+            <strong>本次得分（演示）</strong>
+            <div id="mock-score" class="score">—</div>
+          </div>
+        </div>
+        <p id="pronounce-status" class="status-toast">选择条目后，可听提示、录音并对比。</p>
+      </div>
+    </section>
+
+    <!-- 对话练习 -->
+    <section id="page-chat" class="page">
+      <h2 class="section-title">对话练习 · 教练 ee</h2>
+      <p class="hint" style="margin-bottom:12px;color:var(--muted);font-size:14px;">现在是预设温和纠正（中英双语）。以后可接入真实 Grok Bot / ee。</p>
+      <div class="chat-shell">
+        <div id="chat-log" class="chat-log">
+          <div class="bubble bot">
+            <div class="who">教练 ee</div>
+            Hi! I'm ee, your speaking coach. 别怕说错——发一句英文或中文求助，我帮你改得更自然。试试：「Hello」或「怎么说：我昨天去图书馆了」
+          </div>
+        </div>
+        <div class="quick-replies">
+          <button type="button" data-quick="Hello!">Hello!</button>
+          <button type="button" data-quick="How are you?">How are you?</button>
+          <button type="button" data-quick="I go to school yesterday">I go to school yesterday</button>
+          <button type="button" data-quick="帮我纠音 think">帮我纠音 think</button>
+          <button type="button" data-quick="什么是大模型？用英语怎么说">知识英语</button>
+        </div>
+        <form id="chat-form" class="chat-input-bar">
+          <input id="chat-input" type="text" placeholder="用英文写一句，或中文问「怎么说…」" autocomplete="off" />
+          <button type="submit" class="btn btn-primary">发送</button>
+        </form>
+      </div>
+    </section>
+
+    <!-- 知识+英语 -->
+    <section id="page-knowledge" class="page">
+      <h2 class="section-title">知识 + 英语</h2>
+      <p class="hint" style="margin-bottom:12px;color:var(--muted);font-size:14px;">三步走：简单英文讲解 → 关键词跟读 → 用英语复述。适合小白，顺便练口语。</p>
+      <div class="lesson-tabs">
+        <button type="button" class="lesson-tab active" data-lesson="cell">🧬 细胞</button>
+        <button type="button" class="lesson-tab" data-lesson="llm">🤖 大模型</button>
+        <button type="button" class="lesson-tab" data-lesson="python">💻 Python</button>
+      </div>
+
+      <div class="card">
+        <h3 id="lesson-title">What is a cell?</h3>
+
+        <div class="step">
+          <div class="step-label">Step 1 · 简单英文讲解</div>
+          <p id="lesson-en" class="en"></p>
+        </div>
+
+        <div class="step">
+          <div class="step-label">Step 2 · 关键词跟读</div>
+          <div id="lesson-phrases" class="phrase-chips"></div>
+          <div class="btn-row">
+            <button type="button" id="btn-shadow-phrases" class="btn btn-secondary">🔊 跟读这些短语</button>
+          </div>
+        </div>
+
+        <div class="step retell-box">
+          <div class="step-label">Step 3 · 用英语复述</div>
+          <p id="lesson-retell-prompt" class="hint"></p>
+          <textarea id="retell-text" placeholder="Write 1–2 sentences in English…"></textarea>
+          <div class="btn-row">
+            <button type="button" id="btn-save-retell" class="btn btn-primary">保存复述</button>
+            <button type="button" class="btn btn-ghost" data-go="#chat">带到对话里改</button>
+          </div>
+          <p id="retell-status" class="status-toast"></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 错音本 / 复习 -->
+    <section id="page-review" class="page">
+      <h2 class="section-title">错音本 · 复习</h2>
+      <p class="hint" style="margin-bottom:8px;color:var(--muted);font-size:14px;">点卡片翻面看提示，再用 Again / Hard / Good 模拟间隔复习。</p>
+      <p id="review-count" style="font-size:13px;color:var(--muted);margin-bottom:12px;"></p>
+
+      <div id="flashcard" class="flashcard" role="button" tabindex="0" aria-label="点击翻转卡片">
+        <div id="fc-word" class="front-word">think</div>
+        <div id="fc-ipa" class="front-ipa">/θɪŋk/</div>
+        <div class="tap-hint">👆 点一下看发音提示</div>
+        <div class="back">
+          <p id="fc-tip"></p>
+        </div>
+      </div>
+
+      <div id="srs-row" class="srs-row">
+        <button type="button" id="btn-again" class="btn btn-again">Again</button>
+        <button type="button" id="btn-hard" class="btn btn-hard">Hard</button>
+        <button type="button" id="btn-good" class="btn btn-good">Good</button>
+      </div>
+
+      <div id="review-empty" class="empty-state" style="display:none;">
+        错音本空空如也 🎉<br />去「练发音」把难词加进来吧。
+      </div>
+    </section>
+  </main>
+
+  <nav class="bottom-nav" aria-label="主导航">
+    <button type="button" class="nav-btn active" data-page="home" data-go="#home"><span class="ico">🏠</span>首页</button>
+    <button type="button" class="nav-btn" data-page="path" data-go="#path"><span class="ico">🗺️</span>路径</button>
+    <button type="button" class="nav-btn" data-page="pronounce" data-go="#pronounce"><span class="ico">🎤</span>发音</button>
+    <button type="button" class="nav-btn" data-page="chat" data-go="#chat"><span class="ico">💬</span>对话</button>
+    <button type="button" class="nav-btn" data-page="knowledge" data-go="#knowledge"><span class="ico">📚</span>知识</button>
+    <button type="button" class="nav-btn" data-page="review" data-go="#review"><span class="ico">🃏</span>复习</button>
+  </nav>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
