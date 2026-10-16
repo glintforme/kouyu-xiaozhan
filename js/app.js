@@ -1,4 +1,4 @@
-/* 口语小站 · 学习端主逻辑 v4 · 游戏化 + 妹妹档案 */
+/* 口语小站 · 学习端主逻辑 v5 · 游戏化 + 妹妹档案 */
 (function () {
   "use strict";
 
@@ -124,20 +124,43 @@
         renderHud();
         renderGameTasks();
         if (res.xpGain) {
-          toast((res.leveled ? `升级到 Lv.${state.level}！` : "") + `完成任务 +${res.xpGain} XP`);
+          let msg = `✨ 完成！+${res.xpGain} XP`;
+          if (res.leveled) msg = `🎉 升级到 Lv.${state.level}！` + msg;
+          if (res.streakBumped) msg += ` · 🔥${state.streak}天`;
+          if (res.newBadges && res.newBadges.length) msg += ` · 🏅` + res.newBadges.map((b) => b.name).join("/");
+          toast(msg);
+          flashXpHud();
         } else toast("任务已完成");
       });
     });
   }
 
-  function claimModule(module) {
+  function claimModule(module, opts) {
+    const silent = opts && opts.silent;
     const res = Gm.completeTaskByModule(state, module);
     state = res.state;
     persist();
     renderHud();
     renderGameTasks();
-    if (res.xpGain) toast(`任务完成 +${res.xpGain} XP` + (res.leveled ? ` · 升级 Lv.${state.level}` : ""));
-    else toast("已练习！若任务未勾选，请回首页点「领取」，或今日该模块任务已领完");
+    if (res.xpGain) {
+      let msg = `✨ +${res.xpGain} XP`;
+      if (res.leveled) msg += ` · 升级到 Lv.${state.level}！`;
+      if (res.streakBumped) msg += ` · 🔥连续 ${state.streak} 天`;
+      if (res.newBadges && res.newBadges.length) msg += ` · 🏅${res.newBadges[0].name}`;
+      toast(msg);
+      flashXpHud();
+    } else if (!silent) {
+      toast("练过啦～回首页看任务；若已领取过，明天 ee 会发新任务");
+    }
+    return res;
+  }
+
+  function flashXpHud() {
+    const hud = document.getElementById("xp-hud");
+    if (!hud) return;
+    hud.classList.remove("xp-pop");
+    void hud.offsetWidth;
+    hud.classList.add("xp-pop");
   }
 
   // —— Routing ——
@@ -162,9 +185,15 @@
     document.querySelectorAll("#shell-learn .page").forEach((el) => {
       el.classList.toggle("active", el.id === `page-${pageId}`);
     });
+    const morePages = ["knowledge", "review", "path", "progress"];
     document.querySelectorAll(".nav-btn").forEach((btn) => {
-      btn.classList.toggle("active", btn.dataset.page === pageId);
+      if (btn.id === "nav-more-btn") {
+        btn.classList.toggle("active", morePages.includes(pageId));
+      } else {
+        btn.classList.toggle("active", btn.dataset.page === pageId);
+      }
     });
+    if (typeof closeMoreSheet === "function") closeMoreSheet();
     renderHud();
     if (pageId === "home") {
       renderGameTasks();
@@ -192,8 +221,59 @@
     });
   });
 
-  document.getElementById("btn-open-admin")?.addEventListener("click", () => {
+  function openAdminConfirm() {
+    document.getElementById("admin-confirm")?.classList.remove("hidden");
+  }
+  function closeAdminConfirm() {
+    document.getElementById("admin-confirm")?.classList.add("hidden");
+  }
+  document.getElementById("btn-open-admin")?.addEventListener("click", openAdminConfirm);
+  document.getElementById("more-open-admin")?.addEventListener("click", () => {
+    closeMoreSheet();
+    openAdminConfirm();
+  });
+  document.getElementById("admin-confirm-yes")?.addEventListener("click", () => {
+    closeAdminConfirm();
     location.hash = "#admin";
+  });
+  document.getElementById("admin-confirm-no")?.addEventListener("click", closeAdminConfirm);
+  document.getElementById("admin-confirm")?.addEventListener("click", (e) => {
+    if (e.target.id === "admin-confirm") closeAdminConfirm();
+  });
+
+  // More sheet
+  function openMoreSheet() {
+    const sheet = document.getElementById("more-sheet");
+    const btn = document.getElementById("nav-more-btn");
+    sheet?.classList.remove("hidden");
+    btn?.setAttribute("aria-expanded", "true");
+    btn?.classList.add("active");
+  }
+  function closeMoreSheet() {
+    const sheet = document.getElementById("more-sheet");
+    const btn = document.getElementById("nav-more-btn");
+    sheet?.classList.add("hidden");
+    btn?.setAttribute("aria-expanded", "false");
+    // keep active only if on a more-page
+    const hash = (location.hash || "#home").replace("#", "");
+    const morePages = ["knowledge", "review", "path", "progress"];
+    if (!morePages.includes(hash)) btn?.classList.remove("active");
+  }
+  document.getElementById("nav-more-btn")?.addEventListener("click", () => {
+    const sheet = document.getElementById("more-sheet");
+    if (sheet?.classList.contains("hidden")) openMoreSheet();
+    else closeMoreSheet();
+  });
+  document.getElementById("more-sheet-close")?.addEventListener("click", closeMoreSheet);
+  document.getElementById("more-sheet")?.addEventListener("click", (e) => {
+    if (e.target.id === "more-sheet") closeMoreSheet();
+  });
+  document.querySelectorAll("#more-sheet [data-go]").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      e.preventDefault();
+      closeMoreSheet();
+      location.hash = el.getAttribute("data-go");
+    });
   });
 
   // —— Export / Import ——
@@ -244,8 +324,12 @@
     const stats = document.getElementById("progress-stats");
     const bar = document.getElementById("progress-xp-bar");
     const prog = Gm.xpProgress(state.xp);
+    const ownedCount = (state.rewards || []).length;
+    const totalBadges = Gm.BADGE_CATALOG.length;
+    const next = Gm.nextBadgeHint(state);
     if (stats) {
-      stats.textContent = `等级 Lv.${state.level} · 累计 ${state.xp} XP · 连续打卡 ${state.streak || 0} 天 · 徽章 ${(state.rewards || []).length} 枚`;
+      stats.innerHTML = `等级 <strong>Lv.${state.level}</strong> · 累计 <strong>${state.xp} XP</strong><br>连续打卡 <strong>${state.streak || 0}</strong> 天 · 徽章 <strong>${ownedCount}/${totalBadges}</strong><br>本级进度 ${prog.into}/${prog.need} XP` +
+        (next ? `<br><span class="next-badge-hint">下一枚可冲：${next.emoji} ${escapeHtml(next.name)} — ${escapeHtml(next.how || next.desc)}</span>` : "<br>徽章全收集啦！👑");
     }
     if (bar) bar.style.width = `${prog.pct}%`;
     const wall = document.getElementById("badge-wall");
@@ -253,7 +337,12 @@
       const owned = new Set((state.rewards || []).map((r) => r.id));
       wall.innerHTML = Gm.BADGE_CATALOG.map((b) => {
         const on = owned.has(b.id);
-        return `<div class="badge-item ${on ? "owned" : "locked"}">${b.emoji}<strong>${escapeHtml(b.name)}</strong><span>${escapeHtml(b.desc)}</span></div>`;
+        return `<div class="badge-item ${on ? "owned" : "locked"}" title="${escapeAttr(b.how || b.desc)}">
+          <span class="badge-emoji">${b.emoji}</span>
+          <strong>${escapeHtml(b.name)}</strong>
+          <span>${escapeHtml(b.desc)}</span>
+          <span class="badge-how">${on ? "✅ 已解锁" : "🔓 " + escapeHtml(b.how || b.desc)}</span>
+        </div>`;
       }).join("");
     }
     const hist = document.getElementById("challenge-history");
@@ -267,7 +356,7 @@
               return `<li>${m.emoji} ${m.label} ${c.correct}/${c.total}（${Math.round(c.ratio * 100)}%）${c.passed ? "✅" : "❌"} +${c.xp}XP</li>`;
             })
             .join("")
-        : "<li class='hint'>还没有测验记录，去「挑战」试试周测吧。</li>";
+        : "<li class='empty-inline'>还没有测验记录，去「挑战」试试周测吧 🎯</li>";
     }
   }
 
@@ -289,8 +378,8 @@
         return `<button type="button" class="challenge-card" data-challenge="${k}">
           <span class="emoji">${m.emoji}</span>
           <strong>${m.label}</strong>
-          <span>通过奖励 +${m.xp} XP</span>
-          <span class="hint">正确率 ≥ ${Math.round(m.passRatio * 100)}%</span>
+          <span>通过奖励 +${m.xp} XP · ${m.countHint || ""}</span>
+          <span class="hint">正确率 ≥ ${Math.round(m.passRatio * 100)}% 才算通过</span>
         </button>`;
       })
       .join("");
@@ -345,10 +434,15 @@
       toast("请答完所有题目再交卷");
       return;
     }
-    const graded = Gm.gradeChallenge(quizKind, answers);
-    state = Gm.recordChallenge(state, quizKind, graded);
+    const graded = Gm.gradeChallenge(quizKind, answers, quizItems);
+    const rec = Gm.recordChallenge(state, quizKind, graded);
+    state = rec.state || rec;
     persist();
     renderHud();
+    renderGameTasks();
+    if (rec.newBadges && rec.newBadges.length) {
+      toast("🏅 解锁徽章：" + rec.newBadges.map((b) => b.emoji + b.name).join("、"));
+    }
     const quiz = document.getElementById("challenge-quiz");
     const result = document.getElementById("challenge-result");
     if (quiz) quiz.classList.add("hidden");
@@ -445,15 +539,22 @@
     { id: "dh", label: "/ð/ this", word: "this", ipa: "/ðɪs/", zh: "这个", tip: "同 /θ/ 口型，但声带振动。", sentence: "This theme appears throughout the novel.", sentenceZh: "这个主题贯穿整部小说。" },
     { id: "ae", label: "/æ/ analyze", word: "analyze", ipa: "/ˈænəlaɪz/", zh: "分析", tip: "第一音节 /æ/ 嘴张大；重音在 an-。", sentence: "Please analyze the writer's tone.", sentenceZh: "请分析作者的语气。" },
     { id: "r", label: "/r/ really", word: "really", ipa: "/ˈrɪəli/", zh: "真正地；非常", tip: "美式 /r/ 舌身后缩。", sentence: "I really enjoyed that presentation.", sentenceZh: "我真的很喜欢那场演示汇报。" },
+    { id: "v", label: "/v/ very", word: "very", ipa: "/ˈveri/", zh: "非常", tip: "上齿轻触下唇，声带振动；不要发成 /w/。", sentence: "That's a very interesting point.", sentenceZh: "那是一个非常有趣的观点。" },
+    { id: "w", label: "/w/ when", word: "when", ipa: "/wen/", zh: "什么时候；当……时", tip: "双唇圆拢再放开，不要发成 /v/。", sentence: "When did you finish the essay?", sentenceZh: "你什么时候写完论文的？" },
+    { id: "ng", label: "/ŋ/ thinking", word: "thinking", ipa: "/ˈθɪŋkɪŋ/", zh: "思考（现在分词）", tip: "词尾 /ŋ/ 舌后抵软腭，不要加多余 /g/。", sentence: "I'm thinking about the main theme.", sentenceZh: "我在思考主题是什么。" },
     { id: "discuss", label: "discuss 讨论", word: "discuss", ipa: "/dɪˈskʌs/", zh: "讨论", tip: "重音在第二音节；不要 discuss about。", sentence: "Shall we discuss the cultural context?", sentenceZh: "我们要不要讨论一下文化语境？" },
     { id: "argue", label: "argue 论证", word: "argue", ipa: "/ˈɑːrɡjuː/", zh: "争论；论证", tip: "academic 常指提出论据。argue that… = 主张……", sentence: "The author argues that language shapes culture.", sentenceZh: "作者主张：语言塑造文化。" },
     { id: "paraphrase", label: "paraphrase 改述", word: "paraphrase", ipa: "/ˈpærəfreɪz/", zh: "释义；改述", tip: "用自己的话重述，避免抄袭。", sentence: "Try to paraphrase the quote in simpler English.", sentenceZh: "试着用更简单的英语改述这句引文。" },
     { id: "essay", label: "essay 论文", word: "essay", ipa: "/ˈeseɪ/", zh: "短文；论文", tip: "重音在第一音节。", sentence: "My essay is about modern literature.", sentenceZh: "我的论文是关于现代文学的。" },
     { id: "presentation", label: "presentation 汇报", word: "presentation", ipa: "/ˌprezənˈteɪʃn/", zh: "演示；汇报", tip: "重音在 -ta-。", sentence: "I have a presentation on Shakespeare tomorrow.", sentenceZh: "我明天有一场关于莎士比亚的汇报。" },
+    { id: "literature", label: "literature 文学", word: "literature", ipa: "/ˈlɪtrətʃər/", zh: "文学", tip: "重音在第一音节；中间弱读。", sentence: "I study English literature.", sentenceZh: "我学英国文学。" },
+    { id: "thesis", label: "thesis 论点", word: "thesis", ipa: "/ˈθiːsɪs/", zh: "论点；学位论文", tip: "词首 /θ/；复数 theses /ˈθiːsiːz/。", sentence: "What is your thesis statement?", sentenceZh: "你的中心论点是什么？" },
     { id: "s1", label: "寒暄 · Nice to meet you", word: "Nice to meet you", ipa: "/naɪs tə ˈmiːt ju/", zh: "很高兴认识你", tip: "to 弱读成 /tə/。", sentence: "Nice to meet you. What are you majoring in?", sentenceZh: "很高兴认识你。你主修什么专业？" },
     { id: "s2", label: "课堂 · Could you repeat…", word: "Could you repeat that?", ipa: "/kʊd ju rɪˈpiːt ðæt/", zh: "你能再说一遍吗？", tip: "Could you 比 Can you 稍客气。", sentence: "Sorry—could you repeat that more slowly?", sentenceZh: "抱歉——你能再说慢一点吗？" },
     { id: "s3", label: "观点 · In my opinion", word: "In my opinion", ipa: "/ɪn maɪ əˈpɪnjən/", zh: "在我看来", tip: "opinion 重音在 -pin-。", sentence: "In my opinion, this metaphor is powerful.", sentenceZh: "在我看来，这个隐喻很有力量。" },
     { id: "s4", label: "澄清 · What do you mean", word: "What do you mean by…?", ipa: "/wɒt də ju ˈmiːn baɪ/", zh: "你说……是什么意思？", tip: "听不懂时礼貌追问。", sentence: "What do you mean by 'tone' in this text?", sentenceZh: "你说这篇文本里的 tone（语气）是什么意思？" },
+    { id: "s5", label: "同意 · That makes sense", word: "That makes sense", ipa: "/ðæt meɪks sens/", zh: "有道理；明白了", tip: "makes 词尾 /s/；sense /sens/。", sentence: "Oh, that makes sense. Thanks for explaining.", sentenceZh: "哦，明白了。谢谢你解释。" },
+    { id: "s6", label: "请求 · Could you explain", word: "Could you explain…?", ipa: "/kʊd ju ɪkˈspleɪn/", zh: "你能解释一下……吗？", tip: "explain 重音在 -plain。", sentence: "Could you explain this metaphor again?", sentenceZh: "你能再解释一下这个隐喻吗？" },
   ];
 
   let currentPronounce = pronounceItems[0];
@@ -612,12 +713,17 @@
   // —— Chat ——
   const cannedReplies = [
     { test: /hello|hi\b|hey|你好/i, reply: "教练 ee：Hi! Great to see you.\n\"Hi! I'm practicing English today.\"\n\n📌 practice — 练习 · today — 今天" },
-    { test: /how are you|how's it going/i, reply: "教练 ee：Nice!\n\"I'm good, thanks! A bit tired but excited to practice.\"\n\n📌 excited — 兴奋的；期待的" },
+    { test: /how are you|how's it going/i, reply: "教练 ee：Nice!\n\"I'm good, thanks! A bit tired but excited to practice.\"\n\n📌 excited — 兴奋的；期待的 · tired — 累的" },
     { test: /i go to school yesterday|昨天|went to/i, reply: "教练 ee：时态修正：\n❌ I go … yesterday\n✅ I went to school yesterday.\n\n📌 went — go 的过去式 · yesterday — 昨天" },
     { test: /think|纠音|发音|\/θ\//i, reply: "教练 ee：think /θɪŋk/ — 想；认为\n舌尖在齿间吹气。\n\"I think this Thursday is free.\"" },
-    { test: /discuss|argue|essay|presentation|paraphrase|论文|汇报|改述/i, reply: "教练 ee：学术词\n• discuss — 讨论\n• argue — 论证\n• paraphrase — 改述\n• essay — 论文\n• presentation — 汇报" },
-    { test: /foreigner|外国人|交流|conversation|流利|fluent/i, reply: "教练 ee：救命句\n• Could you repeat that? — 你能再说一遍吗？\n• What do you mean by…? — 你说……是什么意思？\n• In my opinion… — 在我看来……" },
-    { test: /help|帮助|不会|怎么说/i, reply: "教练 ee：How do you say … in English? — ……用英语怎么说？" },
+    { test: /discuss|argue|essay|presentation|paraphrase|论文|汇报|改述/i, reply: "教练 ee：学术词速记\n• discuss — 讨论\n• argue — 论证；主张\n• paraphrase — 改述；释义\n• essay — 短文；课程论文\n• presentation — 演示；汇报\n• thesis — 论点；学位论文" },
+    { test: /foreigner|外国人|交流|conversation|流利|fluent/i, reply: "教练 ee：交流救命句\n• Could you repeat that? — 你能再说一遍吗？\n• What do you mean by…? — 你说……是什么意思？\n• I'm not sure I follow. — 我好像没跟上\n• In my opinion… — 在我看来……\n• That makes sense. — 有道理；明白了" },
+    { test: /help|帮助|不会|怎么说/i, reply: "教练 ee：How do you say … in English? — ……用英语怎么说？\n也可以：What's the English for …?" },
+    { test: /introduce|介绍|myself|自我/i, reply: "教练 ee：自我介绍模板\n\"Hi, I'm … I'm an English major. I love reading and practicing speaking.\"\n\n📌 major — 专业 · practicing — 练习中" },
+    { test: /metaphor|theme|literature|文学|隐喻|主题/i, reply: "教练 ee：文学小词\n• literature — 文学\n• theme — 主题\n• metaphor — 隐喻\n• character — 人物\n• tone — 语气；基调\n试着说：The theme of this poem is hope." },
+    { test: /thank|谢谢|thanks/i, reply: "教练 ee：You're welcome!\n也可以说：No problem. / Anytime.\n\n📌 welcome — 别客气 · anytime — 随时都可以" },
+    { test: /weather|天气|fine day/i, reply: "教练 ee：It's a lovely day today!\n\"The weather is nice, so I'm in a good mood for study.\"\n\n📌 weather — 天气 · mood — 心情" },
+    { test: /hobby|兴趣|喜欢|love reading/i, reply: "教练 ee：Hobbies\n\"I enjoy reading novels and watching Crash Course videos.\"\n\n📌 enjoy — 享受；喜欢 · novel — 小说" },
   ];
   const defaultCoachReply = "教练 ee：收到！试着写完整句子，例如：\n\"Yesterday I went to the library.\"\n\n📌 library — 图书馆 · yesterday — 昨天";
 
@@ -646,7 +752,7 @@
     persist();
     setTimeout(() => {
       appendBubble("bot", coachReply(trimmed));
-      claimModule("chat");
+      claimModule("chat", { silent: true });  // only toast when XP actually gained
     }, 400);
   }
 
@@ -772,7 +878,7 @@
     {
       id: "campus-talk",
       title: "校园交流 · Campus Talk",
-      tag: "日常+专业",
+      tag: "校园",
       words: [
         { word: "major", ipa: "/ˈmeɪdʒər/", zh: "专业；主修", exampleEn: "I'm an English major.", exampleZh: "我是英语专业的。" },
         { word: "discuss", ipa: "/dɪˈskʌs/", zh: "讨论", exampleEn: "Let's discuss this chapter.", exampleZh: "我们来讨论这一章。" },
@@ -789,7 +895,7 @@
     {
       id: "academic",
       title: "学术表达 · Academic English",
-      tag: "专业核心",
+      tag: "学术",
       words: [
         { word: "argue", ipa: "/ˈɑːrɡjuː/", zh: "论证；主张", exampleEn: "She argues that context matters.", exampleZh: "她主张语境很重要。" },
         { word: "paraphrase", ipa: "/ˈpærəfreɪz/", zh: "改述；释义", exampleEn: "Please paraphrase this line.", exampleZh: "请改述这一行。" },
@@ -806,7 +912,7 @@
     {
       id: "conversation",
       title: "对外交流 · Real Conversation",
-      tag: "流利对话",
+      tag: "交流",
       words: [
         { word: "Nice to meet you", ipa: "/naɪs tə ˈmiːt ju/", zh: "很高兴认识你", exampleEn: "Nice to meet you!", exampleZh: "很高兴认识你！" },
         { word: "How's it going?", ipa: "/haʊz ɪt ˈɡoʊɪŋ/", zh: "最近怎么样？", exampleEn: "Hey! How's it going?", exampleZh: "嘿！最近怎么样？" },
@@ -823,7 +929,7 @@
     {
       id: "daily-plus",
       title: "日常加深 · Daily + Depth",
-      tag: "生活+表达",
+      tag: "日常",
       words: [
         { word: "prefer", ipa: "/prɪˈfɜːr/", zh: "更喜欢", exampleEn: "I prefer reading to watching TV.", exampleZh: "比起看电视，我更喜欢阅读。" },
         { word: "recommend", ipa: "/ˌrekəˈmend/", zh: "推荐", exampleEn: "Can you recommend a novel?", exampleZh: "你能推荐一本小说吗？" },
@@ -835,6 +941,74 @@
         { word: "appreciate", ipa: "/əˈpriːʃieɪt/", zh: "感激；欣赏", exampleEn: "I appreciate your help.", exampleZh: "感谢你的帮助。" },
         { word: "theme", ipa: "/θiːm/", zh: "主题", exampleEn: "The theme of the story is hope.", exampleZh: "这个故事的主题是希望。" },
         { word: "accent", ipa: "/ˈæksent/", zh: "口音；重音", exampleEn: "Your accent is clear.", exampleZh: "你的口音很清晰。" },
+      ],
+    },
+    {
+      id: "linguistics",
+      title: "语言学入门 · Linguistics Lite",
+      tag: "语言学",
+      words: [
+        { word: "phonetics", ipa: "/fəˈnetɪks/", zh: "语音学", exampleEn: "Phonetics helps us study speech sounds.", exampleZh: "语音学帮助我们研究语音。" },
+        { word: "phonology", ipa: "/fəˈnɒlədʒi/", zh: "音系学", exampleEn: "Phonology looks at sound patterns in a language.", exampleZh: "音系学研究一种语言里的语音模式。" },
+        { word: "syntax", ipa: "/ˈsɪntæks/", zh: "句法", exampleEn: "Syntax is about how we build sentences.", exampleZh: "句法讲的是我们如何组句。" },
+        { word: "semantics", ipa: "/sɪˈmæntɪks/", zh: "语义学", exampleEn: "Semantics studies meaning.", exampleZh: "语义学研究意义。" },
+        { word: "pragmatics", ipa: "/præɡˈmætɪks/", zh: "语用学", exampleEn: "Pragmatics asks how context changes meaning.", exampleZh: "语用学追问语境如何改变意义。" },
+        { word: "morpheme", ipa: "/ˈmɔːrfiːm/", zh: "语素", exampleEn: "A morpheme is the smallest unit of meaning.", exampleZh: "语素是最小的意义单位。" },
+        { word: "dialect", ipa: "/ˈdaɪəlekt/", zh: "方言", exampleEn: "Every dialect has its own charm.", exampleZh: "每一种方言都有自己的魅力。" },
+        { word: "register", ipa: "/ˈredʒɪstər/", zh: "语域；语体", exampleEn: "Academic writing uses a formal register.", exampleZh: "学术写作使用正式语体。" },
+        { word: "intonation", ipa: "/ˌɪntəˈneɪʃn/", zh: "语调", exampleEn: "Rising intonation can mark a question.", exampleZh: "升调可以标记疑问。" },
+        { word: "stress", ipa: "/stres/", zh: "重音；重读", exampleEn: "Word stress changes in 'photograph' and 'photography'.", exampleZh: "photograph 与 photography 的词重音不同。" },
+      ],
+    },
+    {
+      id: "writing-class",
+      title: "写作课 · Writing Workshop",
+      tag: "写作",
+      words: [
+        { word: "outline", ipa: "/ˈaʊtlaɪn/", zh: "提纲；概述", exampleEn: "First, write an outline for your essay.", exampleZh: "先为论文写一个提纲。" },
+        { word: "draft", ipa: "/dræft/", zh: "草稿", exampleEn: "This is only my first draft.", exampleZh: "这只是我的初稿。" },
+        { word: "revise", ipa: "/rɪˈvaɪz/", zh: "修改；修订", exampleEn: "I need to revise the conclusion.", exampleZh: "我需要修改结论部分。" },
+        { word: "citation", ipa: "/saɪˈteɪʃn/", zh: "引用；文献标注", exampleEn: "Add a citation for that quote.", exampleZh: "给那句引文加上文献标注。" },
+        { word: "plagiarism", ipa: "/ˈpleɪdʒərɪzəm/", zh: "抄袭；剽窃", exampleEn: "Paraphrasing helps you avoid plagiarism.", exampleZh: "改述有助于避免抄袭。" },
+        { word: "coherence", ipa: "/koʊˈhɪrəns/", zh: "连贯性", exampleEn: "Good essays need coherence between paragraphs.", exampleZh: "好的论文需要段落之间的连贯。" },
+        { word: "transition", ipa: "/trænˈzɪʃn/", zh: "过渡；衔接", exampleEn: "Use transition words like 'however'.", exampleZh: "使用 however 这类过渡词。" },
+        { word: "conclusion", ipa: "/kənˈkluːʒn/", zh: "结论", exampleEn: "Restate your thesis in the conclusion.", exampleZh: "在结论里重述你的论点。" },
+        { word: "paragraph", ipa: "/ˈpærəɡræf/", zh: "段落", exampleEn: "Each paragraph should have one main idea.", exampleZh: "每个段落应有一个中心意思。" },
+        { word: "audience", ipa: "/ˈɔːdiəns/", zh: "读者；听众", exampleEn: "Think about your audience when you write.", exampleZh: "写作时想想你的读者是谁。" },
+      ],
+    },
+    {
+      id: "social-talk",
+      title: "社交口语 · Social English",
+      tag: "社交",
+      words: [
+        { word: "catch up", ipa: "/kætʃ ʌp/", zh: "叙旧；赶上", exampleEn: "Let's catch up this weekend.", exampleZh: "这周末我们叙叙旧吧。" },
+        { word: "hang out", ipa: "/hæŋ aʊt/", zh: "一起闲逛；聚会", exampleEn: "Do you want to hang out after class?", exampleZh: "下课要不要一起逛逛？" },
+        { word: "I'm tied up", ipa: "/aɪm taɪd ʌp/", zh: "我抽不开身；有事忙", exampleEn: "Sorry, I'm tied up tonight.", exampleZh: "抱歉，我今晚抽不开身。" },
+        { word: "rain check", ipa: "/reɪn tʃek/", zh: "改天再约", exampleEn: "Can I take a rain check?", exampleZh: "能改天再约吗？" },
+        { word: "my treat", ipa: "/maɪ triːt/", zh: "我请客", exampleEn: "Coffee is my treat today.", exampleZh: "今天咖啡我请客。" },
+        { word: "Congrats", ipa: "/kənˈɡræts/", zh: "恭喜（口语）", exampleEn: "Congrats on your exam!", exampleZh: "恭喜你考试顺利！" },
+        { word: "No worries", ipa: "/noʊ ˈwʌriz/", zh: "没事；别担心", exampleEn: "No worries—I can wait.", exampleZh: "没事——我可以等。" },
+        { word: "Sounds good", ipa: "/saʊndz ɡʊd/", zh: "听起来不错", exampleEn: "Dinner at six? Sounds good!", exampleZh: "六点吃饭？听起来不错！" },
+        { word: "I feel you", ipa: "/aɪ fiːl ju/", zh: "我懂你；感同身受", exampleEn: "Deadlines are hard. I feel you.", exampleZh: "截止日期真难熬。我懂你。" },
+        { word: "Keep in touch", ipa: "/kiːp ɪn tʌtʃ/", zh: "保持联系", exampleEn: "It was nice talking. Keep in touch!", exampleZh: "聊得很开心。保持联系！" },
+      ],
+    },
+    {
+      id: "interview",
+      title: "面试与介绍 · Intro & Interview",
+      tag: "面试",
+      words: [
+        { word: "strength", ipa: "/streŋθ/", zh: "优点；长处", exampleEn: "My strength is careful reading.", exampleZh: "我的长处是细读文本。" },
+        { word: "weakness", ipa: "/ˈwiːknəs/", zh: "弱点；不足", exampleEn: "My weakness is speaking too softly.", exampleZh: "我的不足是说话声音偏小。" },
+        { word: "goal", ipa: "/ɡoʊl/", zh: "目标", exampleEn: "My goal is to become a translator.", exampleZh: "我的目标是成为翻译。" },
+        { word: "internship", ipa: "/ˈɪntɜːrnʃɪp/", zh: "实习", exampleEn: "I did an internship at a publishing house.", exampleZh: "我在一家出版社实习过。" },
+        { word: "teamwork", ipa: "/ˈtiːmwɜːrk/", zh: "团队合作", exampleEn: "I learned teamwork in group projects.", exampleZh: "我在小组项目中学会了团队合作。" },
+        { word: "responsibility", ipa: "/rɪˌspɑːnsəˈbɪləti/", zh: "责任", exampleEn: "I take responsibility for my mistakes.", exampleZh: "我对自己的错误负责。" },
+        { word: "available", ipa: "/əˈveɪləbl/", zh: "有空的；可到岗的", exampleEn: "I'm available from next Monday.", exampleZh: "我下周一起可以到岗。" },
+        { word: "background", ipa: "/ˈbækɡraʊnd/", zh: "背景", exampleEn: "My academic background is English.", exampleZh: "我的学术背景是英语。" },
+        { word: "contribution", ipa: "/ˌkɑːntrɪˈbjuːʃn/", zh: "贡献", exampleEn: "What contribution can you make?", exampleZh: "你能做出什么贡献？" },
+        { word: "Looking forward to", ipa: "/ˈlʊkɪŋ ˈfɔːrwərd tu/", zh: "期待……", exampleEn: "I'm looking forward to your reply.", exampleZh: "期待你的回复。" },
       ],
     },
   ];
@@ -1006,4 +1180,7 @@
   updatePronouncePanel();
   renderLesson();
   navigate(location.hash || "#home");
+  requestAnimationFrame(() => {
+    document.getElementById("boot-loading")?.classList.add("hidden");
+  });
 })();

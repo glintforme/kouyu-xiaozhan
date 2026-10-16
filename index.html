@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#e07a5f" />
   <meta name="description" content="口语小站：妹妹免登录学英语打卡升级；哥哥管理端看进度发任务；ee 自动每日任务" />
-  <title>口语小站 · 任务升级练口语</title>
-  <link rel="stylesheet" href="css/styles.css?v=4" />
+  <title>口语小站 · 任务升级练口语 v5</title>
+  <link rel="stylesheet" href="css/styles.css?v=5" />
 </head>
 <body>
   <!-- ========== 学习端（妹妹，免登录） ========== -->
@@ -20,9 +20,13 @@
         </div>
       </a>
       <div class="header-right">
+        <span class="role-chip" title="当前是妹妹学习端">👧 学习</span>
         <div id="hud-level" class="hud-pill" title="等级">Lv.<span id="hud-level-num">1</span></div>
         <div class="streak-pill" title="连续打卡">🔥 <span id="streak-count">0</span></div>
-        <button type="button" id="btn-open-admin" class="btn-icon-admin" title="哥哥管理端">🔐</button>
+        <button type="button" id="btn-open-admin" class="btn-admin-entry" title="哥哥管理端（需密码）" aria-label="打开哥哥管理端">
+          <span class="admin-lock" aria-hidden="true">🔐</span>
+          <span class="admin-label">管理</span>
+        </button>
       </div>
     </header>
 
@@ -45,7 +49,7 @@
 
         <div class="card game-card">
           <h3>🎮 今日任务 <span class="badge-soft">ee 自动 + 哥哥偶尔发布</span></h3>
-          <p class="hint">完成任务得 XP；点「领取」确认完成。主要任务由教练 ee 每天自动布置。</p>
+          <p class="hint">流程：点「去练」→ 完成模块练习 → 回这里点「领取 XP」。也可在模块页点「完成并领 XP」。主要任务由 ee 每天自动布置。</p>
           <ul id="game-task-list" class="game-task-list"></ul>
           <div class="btn-row" style="margin-top:10px;">
             <button type="button" class="btn btn-secondary" data-go="#challenges">挑战测验</button>
@@ -94,19 +98,20 @@
             <button type="button" class="btn btn-ghost" data-go="#chat">找教练 ee</button>
           </div>
         </div>
-        <p class="footer-note">妹妹免登录 · 哥哥点右上角 🔐 · 家庭演示站点</p>
+        <p class="footer-note">妹妹免登录直接学 · 哥哥点右上角「管理」（需密码）· 家庭演示 · 暂未给妹妹正式使用</p>
       </section>
 
       <!-- 进度 / 徽章 -->
       <section id="page-progress" class="page">
         <h2 class="section-title">我的进度</h2>
-        <div class="card">
+        <p class="hint page-lead">经验、连续天数和徽章都在这里。灰色徽章下方写着<strong>怎么解锁</strong>。</p>
+        <div class="card progress-hero-card">
           <h3>📊 战绩</h3>
-          <p id="progress-stats" class="hint"></p>
+          <p id="progress-stats" class="hint progress-stats-rich"></p>
           <div class="progress-wrap"><div id="progress-xp-bar" class="progress-bar"></div></div>
         </div>
         <div class="card">
-          <h3>🏅 徽章墙</h3>
+          <h3>🏅 徽章墙 <span class="badge-soft">点开看解锁条件</span></h3>
           <div id="badge-wall" class="badge-wall"></div>
         </div>
         <div class="card">
@@ -202,10 +207,14 @@
           <div class="quick-replies">
             <button type="button" data-quick="Hello!">Hello! 你好</button>
             <button type="button" data-quick="How's it going?">How's it going?</button>
+            <button type="button" data-quick="Nice to meet you. I'm an English major.">自我介绍</button>
             <button type="button" data-quick="I go to school yesterday">纠时态 yesterday</button>
             <button type="button" data-quick="帮我纠音 think">纠音 think</button>
-            <button type="button" data-quick="教我 discuss 和 paraphrase">学术词 discuss</button>
+            <button type="button" data-quick="教我 discuss 和 paraphrase">学术词</button>
             <button type="button" data-quick="和外国人怎么说听不懂">交流救命句</button>
+            <button type="button" data-quick="What is a metaphor in literature?">文学 metaphor</button>
+            <button type="button" data-quick="My hobby is reading novels">爱好 hobby</button>
+            <button type="button" data-quick="Thank you for your help!">Thank you</button>
           </div>
           <form id="chat-form" class="chat-input-bar">
             <input id="chat-input" type="text" placeholder="用英文写一句…" autocomplete="off" />
@@ -282,10 +291,19 @@
       <button type="button" class="nav-btn" data-page="vocab" data-go="#vocab"><span class="ico">📖</span>词汇</button>
       <button type="button" class="nav-btn" data-page="pronounce" data-go="#pronounce"><span class="ico">🎤</span>发音</button>
       <button type="button" class="nav-btn" data-page="chat" data-go="#chat"><span class="ico">💬</span>对话</button>
-      <button type="button" class="nav-btn" data-page="knowledge" data-go="#knowledge"><span class="ico">📚</span>知识</button>
-      <button type="button" class="nav-btn" data-page="review" data-go="#review"><span class="ico">🃏</span>复习</button>
-      <button type="button" class="nav-btn" data-page="progress" data-go="#progress"><span class="ico">🏅</span>进度</button>
+      <button type="button" class="nav-btn" id="nav-more-btn" data-page="more" aria-expanded="false"><span class="ico">⋯</span>更多</button>
     </nav>
+    <div id="more-sheet" class="more-sheet hidden" role="dialog" aria-label="更多页面">
+      <div class="more-sheet-inner">
+        <p class="more-sheet-title">更多</p>
+        <button type="button" class="more-link" data-go="#knowledge"><span>📚</span>知识+英语</button>
+        <button type="button" class="more-link" data-go="#review"><span>🃏</span>错音本复习</button>
+        <button type="button" class="more-link" data-go="#path"><span>🗺️</span>学习路径</button>
+        <button type="button" class="more-link" data-go="#progress"><span>🏅</span>我的进度 / 徽章</button>
+        <button type="button" class="more-link more-link-admin" id="more-open-admin"><span>🔐</span>哥哥管理端（密码）</button>
+        <button type="button" class="btn btn-ghost more-close" id="more-sheet-close">关闭</button>
+      </div>
+    </div>
   </div>
 
   <!-- ========== 管理端（哥哥，密码门） ========== -->
@@ -399,11 +417,27 @@
     </main>
   </div>
 
+  <div id="boot-loading" class="boot-loading" aria-live="polite">
+    <div class="boot-card">
+      <div class="boot-spinner" aria-hidden="true"></div>
+      <p>口语小站加载中…</p>
+    </div>
+  </div>
+  <div id="admin-confirm" class="modal-mask hidden" role="dialog" aria-modal="true" aria-labelledby="admin-confirm-title">
+    <div class="modal-card">
+      <h3 id="admin-confirm-title">打开哥哥管理端？</h3>
+      <p class="hint">这里要密码，用来<strong>看妹妹进度 / 偶尔发任务</strong>。妹妹日常学习不用进这里。</p>
+      <div class="btn-row">
+        <button type="button" id="admin-confirm-yes" class="btn btn-primary">继续（需密码）</button>
+        <button type="button" id="admin-confirm-no" class="btn btn-ghost">取消</button>
+      </div>
+    </div>
+  </div>
   <div id="app-toast" class="app-toast" role="status" aria-live="polite"></div>
 
-  <script src="js/storage.js?v=4"></script>
-  <script src="js/game.js?v=4"></script>
-  <script src="js/admin.js?v=4"></script>
-  <script src="js/app.js?v=4"></script>
+  <script src="js/storage.js?v=5"></script>
+  <script src="js/game.js?v=5"></script>
+  <script src="js/admin.js?v=5"></script>
+  <script src="js/app.js?v=5"></script>
 </body>
 </html>
