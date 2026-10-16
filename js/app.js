@@ -1,85 +1,222 @@
-/* 口语小站 · App logic · 英语专业向词汇 + 中文释义 */
+/* 口语小站 · App logic · 多档案隔离 + 英语专业向词汇(各自独立中文释义) */
 (function () {
   "use strict";
 
-  const STORAGE_KEY = "kouyu-xiaozhan-v2";
+  const META_KEY = "kouyu-xiaozhan-meta-v3";
+  const PROFILE_PREFIX = "kouyu-xiaozhan-profile-v3:";
+  const LEGACY_KEYS = ["kouyu-xiaozhan-v2", "kouyu-xiaozhan-v1"];
 
-  const defaultState = {
-    streak: 3,
-    lastCheckInDate: null,
-    tasks: {
-      pronounce: false,
-      shadow: false,
-      input: false,
-      output: false,
-    },
-    pathUnlocked: 1,
-    wrongBook: [
-      {
-        id: "th",
-        word: "think",
-        ipa: "/θɪŋk/",
-        zh: "想；认为",
-        tip: "舌尖轻触上牙，气流从齿缝出，不要发成 /s/。",
-        exampleEn: "I think this essay needs a clearer thesis.",
-        exampleZh: "我认为这篇论文需要更清晰的论点。",
-        due: 0,
-      },
-      {
-        id: "discuss",
-        word: "discuss",
-        ipa: "/dɪˈskʌs/",
-        zh: "讨论",
-        tip: "重音在第二音节 -scuss；词尾 /s/ 清辅音。",
-        exampleEn: "Let's discuss the main idea of this poem.",
-        exampleZh: "我们来讨论一下这首诗的主旨。",
-        due: 0,
-      },
-      {
-        id: "paraphrase",
-        word: "paraphrase",
-        ipa: "/ˈpærəfreɪz/",
-        zh: "释义；改述",
-        tip: "para- 轻读，重音在第一音节；phrase 发 /freɪz/。",
-        exampleEn: "Can you paraphrase this sentence in your own words?",
-        exampleZh: "你能用自己的话改述这个句子吗？",
-        due: 0,
-      },
-    ],
-    reviewIndex: 0,
-  };
-
-  function loadState() {
+  function clone(obj) {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem("kouyu-xiaozhan-v1");
-      if (!raw) return structuredClone(defaultState);
-      const parsed = JSON.parse(raw);
-      const base = structuredClone(defaultState);
-      const wrongBook = Array.isArray(parsed.wrongBook)
-        ? parsed.wrongBook.map((c) => ({
-            zh: "",
-            exampleEn: "",
-            exampleZh: "",
-            tip: "",
-            ...c,
-          }))
-        : base.wrongBook;
-      return {
-        ...base,
-        ...parsed,
-        tasks: { ...base.tasks, ...(parsed.tasks || {}) },
-        wrongBook,
-      };
+      return structuredClone(obj);
     } catch {
-      return structuredClone(defaultState);
+      return JSON.parse(JSON.stringify(obj));
     }
   }
 
-  function saveState() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  function emptyProfileState() {
+    return {
+      streak: 0,
+      lastCheckInDate: null,
+      tasks: { pronounce: false, shadow: false, input: false, output: false },
+      pathUnlocked: 1,
+      wrongBook: [
+        {
+          id: "th",
+          word: "think",
+          ipa: "/θɪŋk/",
+          zh: "想；认为",
+          tip: "舌尖轻触上牙，气流从齿缝出，不要发成 /s/。",
+          exampleEn: "I think this essay needs a clearer thesis.",
+          exampleZh: "我认为这篇论文需要更清晰的论点。",
+          due: 0,
+        },
+        {
+          id: "discuss",
+          word: "discuss",
+          ipa: "/dɪˈskʌs/",
+          zh: "讨论",
+          tip: "重音在第二音节 -scuss；词尾 /s/ 清辅音。",
+          exampleEn: "Let's discuss the main idea of this poem.",
+          exampleZh: "我们来讨论一下这首诗的主旨。",
+          due: 0,
+        },
+        {
+          id: "paraphrase",
+          word: "paraphrase",
+          ipa: "/ˈpærəfreɪz/",
+          zh: "释义；改述",
+          tip: "para- 轻读，重音在第一音节；phrase 发 /freɪz/。",
+          exampleEn: "Can you paraphrase this sentence in your own words?",
+          exampleZh: "你能用自己的话改述这个句子吗？",
+          due: 0,
+        },
+      ],
+      reviewIndex: 0,
+      retells: {},
+      selectedVocabThemeId: null,
+    };
   }
 
-  let state = loadState();
+  function defaultMeta() {
+    const now = new Date().toISOString();
+    return {
+      version: 3,
+      activeProfileId: "sister",
+      profiles: [
+        { id: "sister", name: "妹妹", emoji: "👧", createdAt: now },
+        { id: "brother", name: "哥哥", emoji: "👦", createdAt: now },
+      ],
+    };
+  }
+
+  function profileKey(id) {
+    return PROFILE_PREFIX + id;
+  }
+
+  function loadMeta() {
+    try {
+      const raw = localStorage.getItem(META_KEY);
+      if (!raw) return defaultMeta();
+      const parsed = JSON.parse(raw);
+      const base = defaultMeta();
+      const profiles =
+        Array.isArray(parsed.profiles) && parsed.profiles.length
+          ? parsed.profiles.map((p) => ({
+              id: String(p.id),
+              name: String(p.name || "学习者"),
+              emoji: p.emoji || "📘",
+              createdAt: p.createdAt || new Date().toISOString(),
+            }))
+          : base.profiles;
+      let active = parsed.activeProfileId;
+      if (!profiles.some((p) => p.id === active)) active = profiles[0].id;
+      return { version: 3, activeProfileId: active, profiles };
+    } catch {
+      return defaultMeta();
+    }
+  }
+
+  function saveMeta() {
+    localStorage.setItem(META_KEY, JSON.stringify(meta));
+  }
+
+  function normalizeState(parsed) {
+    const base = emptyProfileState();
+    if (!parsed || typeof parsed !== "object") return base;
+    const wrongBook = Array.isArray(parsed.wrongBook)
+      ? parsed.wrongBook.map((c) => ({
+          id: c.id || "w-" + Date.now(),
+          word: c.word || "",
+          ipa: c.ipa || "",
+          zh: c.zh || "",
+          tip: c.tip || "",
+          exampleEn: c.exampleEn || "",
+          exampleZh: c.exampleZh || "",
+          due: c.due || 0,
+        }))
+      : base.wrongBook;
+    return {
+      ...base,
+      ...parsed,
+      tasks: { ...base.tasks, ...(parsed.tasks || {}) },
+      wrongBook,
+      retells: parsed.retells && typeof parsed.retells === "object" ? parsed.retells : {},
+      streak: Number(parsed.streak) || 0,
+      pathUnlocked: Math.min(4, Math.max(1, Number(parsed.pathUnlocked) || 1)),
+      reviewIndex: Number(parsed.reviewIndex) || 0,
+    };
+  }
+
+  function migrateLegacyIfNeeded() {
+    if (localStorage.getItem(META_KEY)) return;
+    for (const key of LEGACY_KEYS) {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      try {
+        const parsed = JSON.parse(raw);
+        const state = normalizeState(parsed);
+        const m = defaultMeta();
+        localStorage.setItem(META_KEY, JSON.stringify(m));
+        localStorage.setItem(profileKey("sister"), JSON.stringify(state));
+        localStorage.setItem(profileKey("brother"), JSON.stringify(emptyProfileState()));
+        return;
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  function loadProfileState(id) {
+    try {
+      const raw = localStorage.getItem(profileKey(id));
+      if (!raw) return emptyProfileState();
+      return normalizeState(JSON.parse(raw));
+    } catch {
+      return emptyProfileState();
+    }
+  }
+
+  function saveProfileState(id, st) {
+    localStorage.setItem(profileKey(id), JSON.stringify(st));
+  }
+
+  migrateLegacyIfNeeded();
+  let meta = loadMeta();
+  // Ensure every listed profile has a storage slot
+  meta.profiles.forEach((p) => {
+    if (!localStorage.getItem(profileKey(p.id))) {
+      saveProfileState(p.id, emptyProfileState());
+    }
+  });
+  saveMeta();
+
+  let state = loadProfileState(meta.activeProfileId);
+
+  function activeProfile() {
+    return meta.profiles.find((p) => p.id === meta.activeProfileId) || meta.profiles[0];
+  }
+
+  function persist() {
+    saveProfileState(meta.activeProfileId, state);
+    saveMeta();
+  }
+
+  function switchProfile(id) {
+    if (id === meta.activeProfileId) return;
+    if (!meta.profiles.some((p) => p.id === id)) return;
+    persist();
+    meta.activeProfileId = id;
+    state = loadProfileState(id);
+    saveMeta();
+    maybeResetDailyTasks();
+    refreshAll();
+    toast(`已切换到「${activeProfile().name}」的学习数据（与其它档案完全分开）`);
+  }
+
+  function renameActiveProfile(name) {
+    const n = (name || "").trim().slice(0, 20);
+    if (!n) return;
+    const p = activeProfile();
+    p.name = n;
+    saveMeta();
+    renderProfileUI();
+    toast(`学习者名称已改为「${n}」`);
+  }
+
+  function createProfile(name) {
+    const n = (name || "").trim().slice(0, 20) || "新学习者";
+    const id = "p-" + Date.now().toString(36);
+    meta.profiles.push({
+      id,
+      name: n,
+      emoji: "✨",
+      createdAt: new Date().toISOString(),
+    });
+    saveProfileState(id, emptyProfileState());
+    saveMeta();
+    switchProfile(id);
+  }
 
   function todayKey() {
     const d = new Date();
@@ -96,11 +233,20 @@
     const today = todayKey();
     if (state.lastCheckInDate && state.lastCheckInDate !== today) {
       state.tasks = { pronounce: false, shadow: false, input: false, output: false };
-      saveState();
+      persist();
     }
   }
 
   maybeResetDailyTasks();
+
+  function toast(msg) {
+    const el = document.getElementById("app-toast");
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.add("show");
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => el.classList.remove("show"), 3200);
+  }
 
   // —— Routing ——
   const pages = ["home", "path", "pronounce", "chat", "knowledge", "review", "vocab"];
@@ -118,6 +264,11 @@
     if (pageId === "review") renderReview();
     if (pageId === "path") renderPath();
     if (pageId === "vocab") renderVocabPage();
+    if (pageId === "pronounce") {
+      renderPronounceChips();
+      updatePronouncePanel();
+    }
+    if (pageId === "knowledge") renderLesson();
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -146,14 +297,14 @@
         if (state.lastCheckInDate === yKey) {
           state.streak = (state.streak || 0) + 1;
         } else if (!state.lastCheckInDate) {
-          state.streak = Math.max(state.streak || 1, 1);
+          state.streak = Math.max(state.streak || 0, 1);
         } else {
           state.streak = 1;
         }
         state.lastCheckInDate = today;
       }
     }
-    saveState();
+    persist();
     renderHome();
   }
 
@@ -164,25 +315,149 @@
     const label = document.getElementById("progress-label");
     const streakEl = document.getElementById("streak-count");
     if (bar) bar.style.width = `${pct}%`;
-    if (label) label.textContent = `今日进度 ${count}/4（${pct}%）`;
+    if (label) label.textContent = `今日进度 ${count}/4（${pct}%）· ${activeProfile().name}`;
     if (streakEl) streakEl.textContent = String(state.streak || 0);
 
     Object.keys(state.tasks).forEach((key) => {
       const row = document.querySelector(`[data-task="${key}"]`);
       if (!row) return;
       const cb = row.querySelector('input[type="checkbox"]');
-      cb.checked = !!state.tasks[key];
+      if (cb) cb.checked = !!state.tasks[key];
       row.classList.toggle("done", !!state.tasks[key]);
     });
 
     renderVocabHomePreview();
+    renderProfileUI();
   }
 
   document.querySelectorAll("[data-task]").forEach((row) => {
     const key = row.dataset.task;
     const cb = row.querySelector('input[type="checkbox"]');
-    cb.addEventListener("change", () => markTask(key, cb.checked));
+    if (cb) cb.addEventListener("change", () => markTask(key, cb.checked));
   });
+
+  // —— Profile UI ——
+  function renderProfileUI() {
+    const p = activeProfile();
+    const nameEl = document.getElementById("learner-name-display");
+    const pill = document.getElementById("learner-pill");
+    if (nameEl) nameEl.textContent = p.name;
+    if (pill) pill.textContent = `${p.emoji || "📘"} ${p.name}`;
+
+    const switcher = document.getElementById("profile-switcher");
+    if (switcher) {
+      switcher.innerHTML = meta.profiles
+        .map(
+          (pr) =>
+            `<button type="button" class="chip ${pr.id === meta.activeProfileId ? "active" : ""}" data-switch-profile="${escapeAttr(pr.id)}">${escapeHtml(pr.emoji || "")} ${escapeHtml(pr.name)}</button>`
+        )
+        .join("");
+      switcher.querySelectorAll("[data-switch-profile]").forEach((btn) => {
+        btn.addEventListener("click", () => switchProfile(btn.dataset.switchProfile));
+      });
+    }
+
+    const input = document.getElementById("learner-rename-input");
+    if (input && document.activeElement !== input) input.value = p.name;
+
+    const warn = document.getElementById("profile-warn");
+    if (warn) {
+      warn.innerHTML =
+        "⚠️ <strong>同一手机/电脑、同一个浏览器</strong>里，若不切换档案，打卡会写进当前档案。<br>" +
+        "哥哥和妹妹请分别点上方「哥哥 / 妹妹」切换；或用<strong>各自的手机</strong>打开本站。<br>" +
+        "数据只存在本机浏览器，不上传云端。换设备请用下方「导出 / 导入」。";
+    }
+  }
+
+  document.getElementById("btn-rename-learner")?.addEventListener("click", () => {
+    const input = document.getElementById("learner-rename-input");
+    renameActiveProfile(input?.value);
+  });
+
+  document.getElementById("btn-add-profile")?.addEventListener("click", () => {
+    const name = window.prompt("新学习者昵称？", "新同学");
+    if (name) createProfile(name);
+  });
+
+  document.getElementById("btn-export-profile")?.addEventListener("click", () => {
+    const payload = {
+      kind: "kouyu-xiaozhan-backup",
+      version: 3,
+      exportedAt: new Date().toISOString(),
+      profile: activeProfile(),
+      state: state,
+      note: "此文件只包含当前学习者档案。导入时会写入当前选中的档案（或新建）。",
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    const safe = (activeProfile().name || "learner").replace(/[^\w\u4e00-\u9fff-]+/g, "_");
+    a.href = URL.createObjectURL(blob);
+    a.download = `口语小站-${safe}-${todayKey()}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    toast("已下载当前档案备份（可传到另一台手机/电脑再导入）");
+  });
+
+  document.getElementById("btn-import-profile")?.addEventListener("click", () => {
+    document.getElementById("import-file-input")?.click();
+  });
+
+  document.getElementById("import-file-input")?.addEventListener("change", async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      let incoming = null;
+      let nameHint = null;
+      if (data && data.kind === "kouyu-xiaozhan-backup" && data.state) {
+        incoming = normalizeState(data.state);
+        nameHint = data.profile && data.profile.name;
+      } else if (data && (data.tasks || data.wrongBook)) {
+        incoming = normalizeState(data);
+      } else {
+        toast("文件格式不对，请选择口语小站导出的 JSON");
+        return;
+      }
+      const mode = window.confirm(
+        "确定导入？\n\n【确定】= 覆盖当前档案「" +
+          activeProfile().name +
+          "」\n【取消】= 新建一个档案再导入\n\n（不会改动其它档案）"
+      );
+      if (mode) {
+        state = incoming;
+        persist();
+        refreshAll();
+        toast("已覆盖当前档案数据");
+      } else {
+        const n = nameHint || "导入的学习者";
+        const id = "p-" + Date.now().toString(36);
+        meta.profiles.push({
+          id,
+          name: n,
+          emoji: "📥",
+          createdAt: new Date().toISOString(),
+        });
+        saveProfileState(id, incoming);
+        meta.activeProfileId = id;
+        state = incoming;
+        saveMeta();
+        refreshAll();
+        toast(`已新建档案「${n}」并导入`);
+      }
+    } catch (err) {
+      toast("导入失败：文件无法解析");
+    }
+  });
+
+  function refreshAll() {
+    renderPronounceChips();
+    updatePronouncePanel();
+    renderLesson();
+    renderProfileUI();
+    navigate(location.hash || "#home");
+  }
 
   // —— Learning path ——
   const phases = [
@@ -242,7 +517,7 @@
               ? `<ul class="resource-list">${p.resources
                   .map(
                     (r) =>
-                      `<li><a href="${r.url}" target="_blank" rel="noopener noreferrer">${r.name}<span>${r.tag} ↗</span></a></li>`
+                      `<li><a href="${r.url}" target="_blank" rel="noopener noreferrer">${escapeHtml(r.name)}<span>${escapeHtml(r.tag)} ↗</span></a></li>`
                   )
                   .join("")}</ul>`
               : `<p class="hint">完成更多每日打卡后解锁（原型中可点下方按钮提前解锁）。</p>`
@@ -255,155 +530,25 @@
 
   document.getElementById("unlock-next")?.addEventListener("click", () => {
     state.pathUnlocked = Math.min(4, (state.pathUnlocked || 1) + 1);
-    saveState();
+    persist();
     renderPath();
   });
 
-  // —— Pronunciation（含中文释义 · 日常+专业） ——
+  // —— Pronunciation ——
   const pronounceItems = [
-    {
-      id: "th",
-      type: "sound",
-      label: "/θ/ think",
-      word: "think",
-      ipa: "/θɪŋk/",
-      zh: "想；认为",
-      tip: "舌尖轻轻放在上下牙之间，吹气，声带不振动。对比：sink /sɪŋk/（沉没）。",
-      sentence: "I think this is a strong argument.",
-      sentenceZh: "我认为这是一个有力的论点。",
-    },
-    {
-      id: "dh",
-      type: "sound",
-      label: "/ð/ this",
-      word: "this",
-      ipa: "/ðɪs/",
-      zh: "这个",
-      tip: "同 /θ/ 口型，但声带振动。the /ðə/、that /ðæt/ 同理。",
-      sentence: "This theme appears throughout the novel.",
-      sentenceZh: "这个主题贯穿整部小说。",
-    },
-    {
-      id: "ae",
-      type: "sound",
-      label: "/æ/ analyze",
-      word: "analyze",
-      ipa: "/ˈænəlaɪz/",
-      zh: "分析",
-      tip: "第一音节 /æ/ 嘴张大、舌放低；重音在 an-。英式亦可 analyse /ˈænəlaɪz/。",
-      sentence: "Please analyze the writer's tone.",
-      sentenceZh: "请分析作者的语气。",
-    },
-    {
-      id: "r",
-      type: "sound",
-      label: "/r/ really",
-      word: "really",
-      ipa: "/ˈrɪəli/",
-      zh: "真正地；非常",
-      tip: "美式 /r/ 舌身后缩，不要卷成中文「瑞」。口语里常弱读。",
-      sentence: "I really enjoyed that presentation.",
-      sentenceZh: "我真的很喜欢那场演示汇报。",
-    },
-    {
-      id: "discuss",
-      type: "word",
-      label: "discuss 讨论",
-      word: "discuss",
-      ipa: "/dɪˈskʌs/",
-      zh: "讨论",
-      tip: "重音在第二音节；不要说成 discuss about（多余 about）。",
-      sentence: "Shall we discuss the cultural context?",
-      sentenceZh: "我们要不要讨论一下文化语境？",
-    },
-    {
-      id: "argue",
-      type: "word",
-      label: "argue 论证",
-      word: "argue",
-      ipa: "/ˈɑːrɡjuː/",
-      zh: "争论；论证",
-      tip: "academic 语境常指「提出论据」，不一定是吵架。argue that… = 主张……",
-      sentence: "The author argues that language shapes culture.",
-      sentenceZh: "作者主张：语言塑造文化。",
-    },
-    {
-      id: "paraphrase",
-      type: "word",
-      label: "paraphrase 改述",
-      word: "paraphrase",
-      ipa: "/ˈpærəfreɪz/",
-      zh: "释义；改述",
-      tip: "英语专业高频：用自己的话重述，避免抄袭。重音在第一音节。",
-      sentence: "Try to paraphrase the quote in simpler English.",
-      sentenceZh: "试着用更简单的英语改述这句引文。",
-    },
-    {
-      id: "essay",
-      type: "word",
-      label: "essay 论文",
-      word: "essay",
-      ipa: "/ˈeseɪ/",
-      zh: "短文；论文",
-      tip: "重音在第一音节。campus：write an essay（写一篇论文）。",
-      sentence: "My essay is about modern literature.",
-      sentenceZh: "我的论文是关于现代文学的。",
-    },
-    {
-      id: "presentation",
-      type: "word",
-      label: "presentation 汇报",
-      word: "presentation",
-      ipa: "/ˌpreznˈteɪʃn/",
-      zh: "演示；汇报",
-      tip: "重音在 -ta-；课堂常说 give a presentation。",
-      sentence: "I have a presentation on Shakespeare tomorrow.",
-      sentenceZh: "我明天有一场关于莎士比亚的汇报。",
-    },
-    {
-      id: "s1",
-      type: "sentence",
-      label: "寒暄 · Nice to meet you",
-      word: "Nice to meet you",
-      ipa: "/naɪs tə ˈmiːt ju/",
-      zh: "很高兴认识你",
-      tip: "to 弱读成 /tə/；meet you 可连读。正式场合也很常用。",
-      sentence: "Nice to meet you. What are you majoring in?",
-      sentenceZh: "很高兴认识你。你主修什么专业？",
-    },
-    {
-      id: "s2",
-      type: "sentence",
-      label: "课堂 · Could you repeat…",
-      word: "Could you repeat that?",
-      ipa: "/kʊd ju rɪˈpiːt ðæt/",
-      zh: "你能再说一遍吗？",
-      tip: "Could you 比 Can you 稍客气；th 发 /ð/。和外国人交流救命句。",
-      sentence: "Sorry—could you repeat that more slowly?",
-      sentenceZh: "抱歉——你能再说慢一点吗？",
-    },
-    {
-      id: "s3",
-      type: "sentence",
-      label: "观点 · In my opinion",
-      word: "In my opinion",
-      ipa: "/ɪn maɪ əˈpɪnjən/",
-      zh: "在我看来",
-      tip: "opinion 重音在 -pin-。书面/口语都适合表达观点。",
-      sentence: "In my opinion, this metaphor is powerful.",
-      sentenceZh: "在我看来，这个隐喻很有力量。",
-    },
-    {
-      id: "s4",
-      type: "sentence",
-      label: "澄清 · What do you mean",
-      word: "What do you mean by…?",
-      ipa: "/wɒt də ju ˈmiːn baɪ/",
-      zh: "你说……是什么意思？",
-      tip: "do you 弱读；mean 清晰。听不懂外国人时礼貌追问。",
-      sentence: "What do you mean by 'tone' in this text?",
-      sentenceZh: "你说这篇文本里的 tone（语气）是什么意思？",
-    },
+    { id: "th", type: "sound", label: "/θ/ think", word: "think", ipa: "/θɪŋk/", zh: "想；认为", tip: "舌尖轻轻放在上下牙之间，吹气，声带不振动。对比：sink /sɪŋk/（沉没）。", sentence: "I think this is a strong argument.", sentenceZh: "我认为这是一个有力的论点。" },
+    { id: "dh", type: "sound", label: "/ð/ this", word: "this", ipa: "/ðɪs/", zh: "这个", tip: "同 /θ/ 口型，但声带振动。the /ðə/、that /ðæt/ 同理。", sentence: "This theme appears throughout the novel.", sentenceZh: "这个主题贯穿整部小说。" },
+    { id: "ae", type: "sound", label: "/æ/ analyze", word: "analyze", ipa: "/ˈænəlaɪz/", zh: "分析", tip: "第一音节 /æ/ 嘴张大、舌放低；重音在 an-。英式亦可 analyse。", sentence: "Please analyze the writer's tone.", sentenceZh: "请分析作者的语气。" },
+    { id: "r", type: "sound", label: "/r/ really", word: "really", ipa: "/ˈrɪəli/", zh: "真正地；非常", tip: "美式 /r/ 舌身后缩，不要卷成中文「瑞」。口语里常弱读。", sentence: "I really enjoyed that presentation.", sentenceZh: "我真的很喜欢那场演示汇报。" },
+    { id: "discuss", type: "word", label: "discuss 讨论", word: "discuss", ipa: "/dɪˈskʌs/", zh: "讨论", tip: "重音在第二音节；不要说成 discuss about（多余 about）。", sentence: "Shall we discuss the cultural context?", sentenceZh: "我们要不要讨论一下文化语境？" },
+    { id: "argue", type: "word", label: "argue 论证", word: "argue", ipa: "/ˈɑːrɡjuː/", zh: "争论；论证", tip: "academic 语境常指「提出论据」，不一定是吵架。argue that… = 主张……", sentence: "The author argues that language shapes culture.", sentenceZh: "作者主张：语言塑造文化。" },
+    { id: "paraphrase", type: "word", label: "paraphrase 改述", word: "paraphrase", ipa: "/ˈpærəfreɪz/", zh: "释义；改述", tip: "英语专业高频：用自己的话重述，避免抄袭。重音在第一音节。", sentence: "Try to paraphrase the quote in simpler English.", sentenceZh: "试着用更简单的英语改述这句引文。" },
+    { id: "essay", type: "word", label: "essay 论文", word: "essay", ipa: "/ˈeseɪ/", zh: "短文；论文", tip: "重音在第一音节。campus：write an essay（写一篇论文）。", sentence: "My essay is about modern literature.", sentenceZh: "我的论文是关于现代文学的。" },
+    { id: "presentation", type: "word", label: "presentation 汇报", word: "presentation", ipa: "/ˌprezənˈteɪʃn/", zh: "演示；汇报", tip: "重音在 -ta-；课堂常说 give a presentation。", sentence: "I have a presentation on Shakespeare tomorrow.", sentenceZh: "我明天有一场关于莎士比亚的汇报。" },
+    { id: "s1", type: "sentence", label: "寒暄 · Nice to meet you", word: "Nice to meet you", ipa: "/naɪs tə ˈmiːt ju/", zh: "很高兴认识你", tip: "to 弱读成 /tə/；meet you 可连读。正式场合也很常用。", sentence: "Nice to meet you. What are you majoring in?", sentenceZh: "很高兴认识你。你主修什么专业？" },
+    { id: "s2", type: "sentence", label: "课堂 · Could you repeat…", word: "Could you repeat that?", ipa: "/kʊd ju rɪˈpiːt ðæt/", zh: "你能再说一遍吗？", tip: "Could you 比 Can you 稍客气；th 发 /ð/。和外国人交流救命句。", sentence: "Sorry—could you repeat that more slowly?", sentenceZh: "抱歉——你能再说慢一点吗？" },
+    { id: "s3", type: "sentence", label: "观点 · In my opinion", word: "In my opinion", ipa: "/ɪn maɪ əˈpɪnjən/", zh: "在我看来", tip: "opinion 重音在 -pin-。书面/口语都适合表达观点。", sentence: "In my opinion, this metaphor is powerful.", sentenceZh: "在我看来，这个隐喻很有力量。" },
+    { id: "s4", type: "sentence", label: "澄清 · What do you mean", word: "What do you mean by…?", ipa: "/wɒt də ju ˈmiːn baɪ/", zh: "你说……是什么意思？", tip: "do you 弱读；mean 清晰。听不懂外国人时礼貌追问。", sentence: "What do you mean by 'tone' in this text?", sentenceZh: "你说这篇文本里的 tone（语气）是什么意思？" },
   ];
 
   let currentPronounce = pronounceItems[0];
@@ -418,12 +563,12 @@
     row.innerHTML = pronounceItems
       .map(
         (item) =>
-          `<button type="button" class="chip ${item.id === currentPronounce.id ? "active" : ""}" data-pronounce="${item.id}">${item.label}</button>`
+          `<button type="button" class="chip ${item.id === currentPronounce.id ? "active" : ""}" data-pronounce="${item.id}">${escapeHtml(item.label)}</button>`
       )
       .join("");
     row.querySelectorAll("[data-pronounce]").forEach((btn) => {
       btn.addEventListener("click", () => {
-        currentPronounce = pronounceItems.find((x) => x.id === btn.dataset.pronounce);
+        currentPronounce = pronounceItems.find((x) => x.id === btn.dataset.pronounce) || pronounceItems[0];
         updatePronouncePanel();
         renderPronounceChips();
       });
@@ -431,16 +576,24 @@
   }
 
   function updatePronouncePanel() {
-    document.getElementById("p-word").textContent = currentPronounce.word;
-    document.getElementById("p-ipa").textContent = currentPronounce.ipa;
+    const w = document.getElementById("p-word");
+    const ipa = document.getElementById("p-ipa");
     const zhEl = document.getElementById("p-zh");
-    if (zhEl) zhEl.textContent = currentPronounce.zh ? `中文意思：${currentPronounce.zh}` : "";
-    document.getElementById("p-tip").textContent = currentPronounce.tip;
-    document.getElementById("p-sentence").textContent = currentPronounce.sentence;
+    const tip = document.getElementById("p-tip");
+    const sent = document.getElementById("p-sentence");
     const sz = document.getElementById("p-sentence-zh");
+    if (w) w.textContent = currentPronounce.word;
+    if (ipa) ipa.textContent = currentPronounce.ipa;
+    if (zhEl) {
+      zhEl.innerHTML = `<span class="gloss-label">释义</span><span class="gloss-text">${escapeHtml(currentPronounce.zh || "—")}</span>`;
+    }
+    if (tip) tip.textContent = currentPronounce.tip;
+    if (sent) sent.textContent = currentPronounce.sentence;
     if (sz) sz.textContent = currentPronounce.sentenceZh || "";
-    document.getElementById("pronounce-status").textContent = "选择条目后，可听提示、录音并对比。";
-    document.getElementById("mock-score").textContent = "—";
+    const status = document.getElementById("pronounce-status");
+    if (status) status.textContent = "选择条目后，可听提示、录音并对比。";
+    const score = document.getElementById("mock-score");
+    if (score) score.textContent = "—";
     if (recordedUrl) {
       URL.revokeObjectURL(recordedUrl);
       recordedUrl = null;
@@ -449,7 +602,8 @@
 
   function speakText(text) {
     if (!window.speechSynthesis) {
-      document.getElementById("pronounce-status").textContent = "当前浏览器不支持语音合成，请自行朗读对照。";
+      const status = document.getElementById("pronounce-status");
+      if (status) status.textContent = "当前浏览器不支持语音合成，请自行朗读对照。";
       return;
     }
     window.speechSynthesis.cancel();
@@ -473,9 +627,9 @@
 
     if (!navigator.mediaDevices?.getUserMedia) {
       isRecording = true;
-      btn.classList.add("recording");
-      btn.textContent = "⏹ 停止（模拟）";
-      status.textContent = "模拟录音中…再点一次结束（本环境无麦克风权限时使用）。";
+      btn?.classList.add("recording");
+      if (btn) btn.textContent = "⏹ 停止（模拟）";
+      if (status) status.textContent = "模拟录音中…再点一次结束（本环境无麦克风权限时使用）。";
       return;
     }
 
@@ -490,21 +644,22 @@
         const blob = new Blob(recordedChunks, { type: "audio/webm" });
         if (recordedUrl) URL.revokeObjectURL(recordedUrl);
         recordedUrl = URL.createObjectURL(blob);
-        status.textContent = "录音完成！可以点「播放我的录音」对比。";
+        if (status) status.textContent = "录音完成！可以点「播放我的录音」对比。";
         const score = 72 + Math.floor(Math.random() * 24);
-        document.getElementById("mock-score").textContent = `${score}`;
+        const scoreEl = document.getElementById("mock-score");
+        if (scoreEl) scoreEl.textContent = `${score}`;
         markTask("pronounce", true);
       };
       mediaRecorder.start();
       isRecording = true;
-      btn.classList.add("recording");
-      btn.textContent = "⏹ 停止录音";
-      status.textContent = "录音中…大声清晰地读出来。";
+      btn?.classList.add("recording");
+      if (btn) btn.textContent = "⏹ 停止录音";
+      if (status) status.textContent = "录音中…大声清晰地读出来。";
     } catch (err) {
       isRecording = true;
-      btn.classList.add("recording");
-      btn.textContent = "⏹ 停止（模拟）";
-      status.textContent = "无法使用麦克风，已切换模拟录音。再点一次结束。";
+      btn?.classList.add("recording");
+      if (btn) btn.textContent = "⏹ 停止（模拟）";
+      if (status) status.textContent = "无法使用麦克风，已切换模拟录音。再点一次结束。";
     }
   }
 
@@ -512,16 +667,17 @@
     const btn = document.getElementById("btn-record");
     const status = document.getElementById("pronounce-status");
     isRecording = false;
-    btn.classList.remove("recording");
-    btn.textContent = "🎤 开始录音";
+    btn?.classList.remove("recording");
+    if (btn) btn.textContent = "🎤 开始录音";
 
     if (mediaRecorder && mediaRecorder.state !== "inactive") {
       mediaRecorder.stop();
       mediaRecorder = null;
       return;
     }
-    status.textContent = "模拟录音完成！（真实环境将保存你的音频）评分仅供演示。";
-    document.getElementById("mock-score").textContent = String(78 + Math.floor(Math.random() * 18));
+    if (status) status.textContent = "模拟录音完成！（真实环境将保存你的音频）评分仅供演示。";
+    const scoreEl = document.getElementById("mock-score");
+    if (scoreEl) scoreEl.textContent = String(78 + Math.floor(Math.random() * 18));
     markTask("pronounce", true);
   }
 
@@ -535,9 +691,9 @@
     if (recordedUrl) {
       const audio = new Audio(recordedUrl);
       audio.play();
-      status.textContent = "正在播放你的录音…";
-    } else {
-      status.textContent = "还没有录音。请先点「开始录音」。（模拟模式下停止后也可看分数）";
+      if (status) status.textContent = "正在播放你的录音…";
+    } else if (status) {
+      status.textContent = "还没有录音。请先点「开始录音」。";
     }
   });
 
@@ -554,75 +710,81 @@
         exampleZh: currentPronounce.sentenceZh || "",
         due: 0,
       });
-      saveState();
+      persist();
     }
-    document.getElementById("pronounce-status").textContent = exists
-      ? "错音本里已有这个词啦。"
-      : "已加入错音本，可去「复习」里练。";
+    const status = document.getElementById("pronounce-status");
+    if (status) {
+      status.textContent = exists ? "错音本里已有这个词啦。" : "已加入错音本，可去「复习」里练。";
+    }
   });
 
-  // —— Chat (canned coach · 双语+词汇释义) ——
+  // —— Chat ——
   const cannedReplies = [
     {
-      test: /hello|hi|hey|你好/i,
+      test: /hello|hi\b|hey|你好/i,
       reply:
-        "教练 ee：Hi! Great to see you. 很高兴见到你～\n试着完整说：\n\"Hi! I'm practicing English today.\"\n（嗨！我今天在练习英语。）\n\n📌 关键词\n• practice /ˈpræktɪs/ — 练习\n• today /təˈdeɪ/ — 今天\n你也可以告诉我今天想练什么～",
+        "教练 ee：Hi! Great to see you. 很高兴见到你～\n试着完整说：\n\"Hi! I'm practicing English today.\"\n（嗨！我今天在练习英语。）\n\n📌 关键词\n• practice /ˈpræktɪs/ — 练习\n• today /təˈdeɪ/ — 今天",
     },
     {
       test: /how are you|how's it going/i,
       reply:
-        "教练 ee：Nice question! 好问题！\n更自然的回答：\n\"I'm good, thanks! A bit tired but excited to practice.\"\n（我挺好的，谢谢！有点累，但很想练习。）\n\n📌 关键词\n• excited /ɪkˈsaɪtɪd/ — 兴奋的；期待的\n• a bit — 有一点（口语）\nI'm good 比 I'm fine 更口语。你再回我一句吧！",
+        "教练 ee：Nice question! 好问题！\n更自然的回答：\n\"I'm good, thanks! A bit tired but excited to practice.\"\n（我挺好的，谢谢！有点累，但很想练习。）\n\n📌 关键词\n• excited /ɪkˈsaɪtɪd/ — 兴奋的；期待的\n• a bit — 有一点（口语）",
     },
     {
       test: /i go to school yesterday|昨天.*图书馆|went to/i,
       reply:
-        "教练 ee：意思我懂！时态小修正：\n❌ I go to school yesterday\n✅ I went to school yesterday.\n（我昨天去学校了。）\n因为有 yesterday（昨天），要用过去式 went。\n\n📌 关键词\n• went /went/ — go 的过去式：去\n• yesterday /ˈjestərdeɪ/ — 昨天\n再试一次？",
+        "教练 ee：意思我懂！时态小修正：\n❌ I go to school yesterday\n✅ I went to school yesterday.\n（我昨天去学校了。）\n因为有 yesterday（昨天），要用过去式 went。\n\n📌 关键词\n• went /went/ — go 的过去式：去\n• yesterday /ˈjestərdeɪ/ — 昨天",
     },
     {
-      test: /think|θ|纠音|发音/i,
+      test: /think|纠音|发音|\/θ\//i,
       reply:
-        "教练 ee：练 /θ/ 很棒！\nTip: tongue between teeth, blow air — think /θɪŋk/（想；认为）。\n跟我读：\"I think this Thursday is free.\"\n（我觉得这个星期四有空。）\n\n📌 关键词\n• think /θɪŋk/ — 想；认为\n• Thursday /ˈθɜːrzdeɪ/ — 星期四（也有 /θ/）\n读完打字告诉我感觉如何～",
+        "教练 ee：练 /θ/ 很棒！\nTip: tongue between teeth, blow air — think /θɪŋk/（想；认为）。\n跟我读：\"I think this Thursday is free.\"\n（我觉得这个星期四有空。）\n\n📌 关键词\n• think /θɪŋk/ — 想；认为\n• Thursday /ˈθɜːrzdeɪ/ — 星期四",
     },
     {
-      test: /discuss|argue|essay|presentation|paraphrase|文学|论文|汇报|改述/i,
+      test: /discuss|argue|essay|presentation|paraphrase|论文|汇报|改述/i,
       reply:
-        "教练 ee：英语专业高频词练起来！\n\n📌 校园 / 学术词\n• discuss /dɪˈskʌs/ — 讨论（不要 discuss about）\n• argue /ˈɑːrɡjuː/ — 论证；主张（argue that…）\n• paraphrase /ˈpærəfreɪz/ — 改述；释义\n• essay /ˈeseɪ/ — 短文；论文\n• presentation /ˌpreznˈteɪʃn/ — 演示；汇报\n\n试着写一句：\"I'd like to discuss…\"（我想讨论……）发给我改！",
+        "教练 ee：英语专业高频词练起来！\n\n📌 校园 / 学术词\n• discuss /dɪˈskʌs/ — 讨论（不要 discuss about）\n• argue /ˈɑːrɡjuː/ — 论证；主张（argue that…）\n• paraphrase /ˈpærəfreɪz/ — 改述；释义\n• essay /ˈeseɪ/ — 短文；论文\n• presentation /ˌprezənˈteɪʃn/ — 演示；汇报\n\n试着写一句：\"I'd like to discuss…\"（我想讨论……）发给我改！",
     },
     {
       test: /cell|细胞|llm|大模型|python|文学|literature|culture|历史/i,
       reply:
-        "教练 ee：知识+英语模式开启！\n用简单英语说：\n\"A cell is the basic unit of life.\"（细胞是生命的基本单位。）\n或 \"Literature helps us understand culture.\"（文学帮助我们理解文化。）\n\n📌 关键词\n• basic unit — 基本单位\n• literature /ˈlɪtrətʃər/ — 文学\n• culture /ˈkʌltʃər/ — 文化\n你选一个主题，用英文写 1–2 句给我批改。",
+        "教练 ee：知识+英语模式开启！\n用简单英语说：\n\"A cell is the basic unit of life.\"（细胞是生命的基本单位。）\n或 \"Literature helps us understand culture.\"（文学帮助我们理解文化。）\n\n📌 关键词\n• basic unit — 基本单位\n• literature /ˈlɪtrətʃər/ — 文学\n• culture /ˈkʌltʃər/ — 文化",
     },
     {
       test: /foreigner|外国人|交流|conversation|流利|fluent/i,
       reply:
-        "教练 ee：和外国人聊天救命句 💬\n\n📌 实用语块\n• Nice to meet you. — 很高兴认识你\n• Could you repeat that? — 你能再说一遍吗？\n• What do you mean by…? — 你说……是什么意思？\n• In my opinion… — 在我看来……\n• I'm not sure I follow. — 我好像没跟上（礼貌说听不懂）\n\n选一句练发音，或自己造句发给我！",
+        "教练 ee：和外国人聊天救命句 💬\n\n📌 实用语块\n• Nice to meet you. — 很高兴认识你\n• Could you repeat that? — 你能再说一遍吗？\n• What do you mean by…? — 你说……是什么意思？\n• In my opinion… — 在我看来……\n• I'm not sure I follow. — 我好像没跟上",
     },
     {
       test: /help|帮助|不会|怎么说/i,
       reply:
-        "教练 ee：没问题！你可以：\n1) 用中文说意思，我帮你译成自然英文\n2) 直接写英文，我帮你改得更地道\n\n📌 提问句式\n• How do you say … in English? — ……用英语怎么说？\n• Is it natural to say …? — 说……自然吗？\n现在把你想说的发给我吧 💪",
+        "教练 ee：没问题！你可以：\n1) 用中文说意思，我帮你译成自然英文\n2) 直接写英文，我帮你改得更地道\n\n📌 提问句式\n• How do you say … in English? — ……用英语怎么说？\n• Is it natural to say …? — 说……自然吗？",
     },
   ];
 
   const defaultCoachReply =
-    "教练 ee：收到！（原型阶段我用预设回复）\n建议你把句子写完整。例如：\n\"Yesterday I went to the library and read for two hours.\"\n（昨天我去图书馆读了两个小时。）\n\n📌 关键词\n• library /ˈlaɪbreri/ — 图书馆\n• yesterday /ˈjestərdeɪ/ — 昨天\n小提示：多用 I + 动词过去式 讲昨天的事。继续发一句，我帮你改！";
+    "教练 ee：收到！（原型阶段我用预设回复）\n建议你把句子写完整。例如：\n\"Yesterday I went to the library and read for two hours.\"\n（昨天我去图书馆读了两个小时。）\n\n📌 关键词\n• library /ˈlaɪbreri/ — 图书馆\n• yesterday /ˈjestərdeɪ/ — 昨天";
 
   function appendBubble(who, text) {
     const log = document.getElementById("chat-log");
+    if (!log) return;
     const div = document.createElement("div");
     div.className = `bubble ${who}`;
-    div.innerHTML = `<div class="who">${who === "bot" ? "教练 ee" : "我"}</div>${escapeHtml(text)}`;
+    div.innerHTML = `<div class="who">${who === "bot" ? "教练 ee" : activeProfile().name}</div>${escapeHtml(text)}`;
     log.appendChild(div);
     log.scrollTop = log.scrollHeight;
   }
 
   function escapeHtml(s) {
-    return s
+    return String(s)
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/\n/g, "<br>");
+  }
+
+  function escapeAttr(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
   }
 
   function coachReply(userText) {
@@ -654,7 +816,7 @@
     btn.addEventListener("click", () => sendChat(btn.dataset.quick));
   });
 
-  // —— Knowledge lessons（关键词带中文） ——
+  // —— Knowledge lessons ——
   const lessons = {
     cell: {
       title: "What is a cell?（细胞是什么？）",
@@ -685,7 +847,7 @@
     python: {
       title: "Hello, Python!（你好，Python！）",
       step1:
-        "Python is a popular programming language. It is friendly for beginners. You can write print(\"Hello\") to show a message. People use Python for websites, data, and AI.",
+        'Python is a popular programming language. It is friendly for beginners. You can write print("Hello") to show a message. People use Python for websites, data, and AI.',
       step1Zh: "Python 是一种流行的编程语言。它对初学者很友好。你可以写 print(\"Hello\") 来显示一条消息。人们用 Python 做网站、数据和人工智能。",
       phrases: [
         { en: "programming language", zh: "编程语言" },
@@ -714,16 +876,26 @@
 
   function renderLesson() {
     const L = lessons[currentLesson];
-    document.getElementById("lesson-title").textContent = L.title;
+    if (!L) return;
+    const title = document.getElementById("lesson-title");
     const enEl = document.getElementById("lesson-en");
-    enEl.innerHTML = `${escapeHtml(L.step1)}<span class="lesson-zh-block">${escapeHtml(L.step1Zh || "")}</span>`;
-    document.getElementById("lesson-phrases").innerHTML = L.phrases
-      .map((p) => {
-        if (typeof p === "string") return `<span class="phrase-chip">${escapeHtml(p)}</span>`;
-        return `<span class="phrase-chip"><strong>${escapeHtml(p.en)}</strong><em>${escapeHtml(p.zh)}</em></span>`;
-      })
-      .join("");
-    document.getElementById("lesson-retell-prompt").textContent = L.retell;
+    if (title) title.textContent = L.title;
+    if (enEl) {
+      enEl.innerHTML = `${escapeHtml(L.step1)}<span class="lesson-zh-block">${escapeHtml(L.step1Zh || "")}</span>`;
+    }
+    const phrasesEl = document.getElementById("lesson-phrases");
+    if (phrasesEl) {
+      phrasesEl.innerHTML = L.phrases
+        .map((p) => {
+          if (typeof p === "string") return `<span class="phrase-chip">${escapeHtml(p)}</span>`;
+          return `<span class="phrase-chip"><strong>${escapeHtml(p.en)}</strong><em>${escapeHtml(p.zh)}</em></span>`;
+        })
+        .join("");
+    }
+    const prompt = document.getElementById("lesson-retell-prompt");
+    if (prompt) prompt.textContent = L.retell;
+    const retell = document.getElementById("retell-text");
+    if (retell) retell.value = state.retells[currentLesson] || "";
     document.querySelectorAll(".lesson-tab").forEach((t) => {
       t.classList.toggle("active", t.dataset.lesson === currentLesson);
     });
@@ -747,15 +919,17 @@
     const text = document.getElementById("retell-text").value.trim();
     const status = document.getElementById("retell-status");
     if (!text) {
-      status.textContent = "先写一两句英文再保存哦。";
+      if (status) status.textContent = "先写一两句英文再保存哦。";
       return;
     }
+    state.retells[currentLesson] = text;
+    persist();
     markTask("input", true);
     markTask("output", true);
-    status.textContent = "已保存到本地（原型）。你可以复制到「对话练习」让教练帮你改！";
+    if (status) status.textContent = `已保存到「${activeProfile().name}」本机档案。可复制到「对话」让教练改。`;
   });
 
-  // —— 词汇本 / 今日单词 ——
+  // —— 词汇本：每条词各自独立、正确的中文释义（禁止复制粘贴同一句） ——
   const vocabThemes = [
     {
       id: "campus-talk",
@@ -764,7 +938,7 @@
       words: [
         { word: "major", ipa: "/ˈmeɪdʒər/", zh: "专业；主修", exampleEn: "I'm an English major.", exampleZh: "我是英语专业的。" },
         { word: "discuss", ipa: "/dɪˈskʌs/", zh: "讨论", exampleEn: "Let's discuss this chapter.", exampleZh: "我们来讨论这一章。" },
-        { word: "presentation", ipa: "/ˌpreznˈteɪʃn/", zh: "演示；汇报", exampleEn: "I gave a presentation today.", exampleZh: "我今天做了一场汇报。" },
+        { word: "presentation", ipa: "/ˌprezənˈteɪʃn/", zh: "演示；汇报", exampleEn: "I gave a presentation today.", exampleZh: "我今天做了一场汇报。" },
         { word: "deadline", ipa: "/ˈdedlaɪn/", zh: "截止日期", exampleEn: "The essay deadline is Friday.", exampleZh: "论文截止日期是周五。" },
         { word: "seminar", ipa: "/ˈsemɪnɑːr/", zh: "研讨课", exampleEn: "Our seminar starts at nine.", exampleZh: "我们的研讨课九点开始。" },
         { word: "assignment", ipa: "/əˈsaɪnmənt/", zh: "作业；任务", exampleEn: "I finished my assignment.", exampleZh: "我写完作业了。" },
@@ -783,12 +957,12 @@
         { word: "paraphrase", ipa: "/ˈpærəfreɪz/", zh: "改述；释义", exampleEn: "Please paraphrase this line.", exampleZh: "请改述这一行。" },
         { word: "summarize", ipa: "/ˈsʌməraɪz/", zh: "总结", exampleEn: "Summarize the main idea.", exampleZh: "总结一下主旨。" },
         { word: "analyze", ipa: "/ˈænəlaɪz/", zh: "分析", exampleEn: "Analyze the character's choice.", exampleZh: "分析这个人物的选择。" },
-        { word: "thesis", ipa: "/ˈθiːsɪs/", zh: "论点；论文", exampleEn: "What is your thesis statement?", exampleZh: "你的中心论点是什么？" },
+        { word: "thesis", ipa: "/ˈθiːsɪs/", zh: "论点；学位论文", exampleEn: "What is your thesis statement?", exampleZh: "你的中心论点是什么？" },
         { word: "evidence", ipa: "/ˈevɪdəns/", zh: "证据；依据", exampleEn: "Support your claim with evidence.", exampleZh: "用证据支撑你的观点。" },
         { word: "metaphor", ipa: "/ˈmetəfɔːr/", zh: "隐喻", exampleEn: "This metaphor is vivid.", exampleZh: "这个隐喻很生动。" },
         { word: "context", ipa: "/ˈkɑːntekst/", zh: "语境；上下文", exampleEn: "Read the word in context.", exampleZh: "在语境中理解这个词。" },
         { word: "perspective", ipa: "/pərˈspektɪv/", zh: "视角；看法", exampleEn: "From another perspective…", exampleZh: "从另一个视角来看……" },
-        { word: "essay", ipa: "/ˈeseɪ/", zh: "短文；论文", exampleEn: "I'm writing an essay on tone.", exampleZh: "我在写一篇关于语气的论文。" },
+        { word: "essay", ipa: "/ˈeseɪ/", zh: "短文；课程论文", exampleEn: "I'm writing an essay on tone.", exampleZh: "我在写一篇关于语气的论文。" },
       ],
     },
     {
@@ -827,28 +1001,46 @@
     },
   ];
 
+  // Sanity: each word in a theme must have its own zh
+  vocabThemes.forEach((t) => {
+    const seen = new Map();
+    t.words.forEach((w) => {
+      if (!w.zh) console.warn("[口语小站] missing zh:", t.id, w.word);
+      if (seen.has(w.zh) && seen.get(w.zh) !== w.word) {
+        console.warn("[口语小站] duplicate zh in theme", t.id, w.zh, "for", seen.get(w.zh), "and", w.word);
+      }
+      seen.set(w.zh, w.word);
+    });
+  });
+
   function getTodayTheme() {
     return vocabThemes[dayOfYear() % vocabThemes.length];
   }
 
-  function vocabCardHtml(item, opts) {
-    const speak = opts && opts.speak ? "true" : "false";
-    return `<article class="vocab-card" data-speak-word="${escapeAttr(item.word)}">
+  function getActiveVocabTheme() {
+    if (state.selectedVocabThemeId) {
+      const found = vocabThemes.find((t) => t.id === state.selectedVocabThemeId);
+      if (found) return found;
+    }
+    return getTodayTheme();
+  }
+
+  function vocabCardHtml(item) {
+    return `<article class="vocab-card">
       <div class="vocab-head">
         <strong class="vocab-word">${escapeHtml(item.word)}</strong>
         <span class="vocab-ipa">${escapeHtml(item.ipa)}</span>
       </div>
-      <div class="vocab-zh">中文意思：${escapeHtml(item.zh)}</div>
+      <div class="vocab-zh" data-zh-for="${escapeAttr(item.word)}">
+        <span class="gloss-label">释义</span>
+        <span class="gloss-text">${escapeHtml(item.zh)}</span>
+      </div>
       <div class="vocab-ex">
         <div class="en">${escapeHtml(item.exampleEn)}</div>
         <div class="zh">${escapeHtml(item.exampleZh)}</div>
       </div>
       <button type="button" class="btn btn-ghost btn-sm vocab-speak" data-speak="${escapeAttr(item.word)}">🔊 听发音</button>
     </article>`;
-  }
-
-  function escapeAttr(s) {
-    return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
   }
 
   function bindVocabSpeak(root) {
@@ -865,9 +1057,8 @@
     const themeEl = document.getElementById("vocab-home-theme");
     if (!root) return;
     const theme = getTodayTheme();
-    if (themeEl) themeEl.textContent = `${theme.title} · ${theme.tag}`;
-    const preview = theme.words.slice(0, 4);
-    root.innerHTML = preview.map((w) => vocabCardHtml(w)).join("");
+    if (themeEl) themeEl.textContent = `今日轮换：${theme.title} · ${theme.tag}`;
+    root.innerHTML = theme.words.slice(0, 4).map((w) => vocabCardHtml(w)).join("");
     bindVocabSpeak(root);
   }
 
@@ -876,34 +1067,34 @@
     const themeEl = document.getElementById("vocab-page-theme");
     const hint = document.getElementById("vocab-page-hint");
     if (!root) return;
-    const theme = getTodayTheme();
+    const theme = getActiveVocabTheme();
     if (themeEl) themeEl.textContent = theme.title;
-    if (hint) hint.textContent = `今日主题「${theme.tag}」· 共 ${theme.words.length} 条 · 适合英语专业口语与课堂表达（约 CEFR B1–B2，句子保持简短好开口）`;
+    if (hint) {
+      hint.textContent = `主题「${theme.tag}」· 共 ${theme.words.length} 条 · 每条释义相互独立 · 适合英语专业口语与课堂（约 B1–B2）`;
+    }
     root.innerHTML = theme.words.map((w) => vocabCardHtml(w)).join("");
     bindVocabSpeak(root);
 
     const switcher = document.getElementById("vocab-theme-switch");
-    if (switcher && !switcher.dataset.bound) {
-      switcher.dataset.bound = "1";
+    if (switcher) {
       switcher.innerHTML = vocabThemes
-        .map((t, i) => `<button type="button" class="chip" data-theme-idx="${i}">${t.tag}</button>`)
+        .map(
+          (t) =>
+            `<button type="button" class="chip ${t.id === theme.id ? "active" : ""}" data-theme-id="${t.id}">${escapeHtml(t.tag)}</button>`
+        )
         .join("");
-      switcher.querySelectorAll("[data-theme-idx]").forEach((btn) => {
+      switcher.querySelectorAll("[data-theme-id]").forEach((btn) => {
         btn.addEventListener("click", () => {
-          const idx = Number(btn.dataset.themeIdx);
-          const t = vocabThemes[idx];
-          document.getElementById("vocab-page-theme").textContent = t.title;
-          document.getElementById("vocab-page-hint").textContent = `主题「${t.tag}」· 共 ${t.words.length} 条（手动切换预览；首页「今日」按日期轮换）`;
-          root.innerHTML = t.words.map((w) => vocabCardHtml(w)).join("");
-          bindVocabSpeak(root);
-          switcher.querySelectorAll(".chip").forEach((c) => c.classList.toggle("active", c === btn));
+          state.selectedVocabThemeId = btn.dataset.themeId;
+          persist();
+          renderVocabPage();
         });
       });
     }
   }
 
   document.getElementById("btn-add-today-vocab-review")?.addEventListener("click", () => {
-    const theme = getTodayTheme();
+    const theme = getActiveVocabTheme();
     let added = 0;
     theme.words.forEach((w) => {
       if (state.wrongBook.some((c) => c.word === w.word)) return;
@@ -912,23 +1103,28 @@
         word: w.word,
         ipa: w.ipa,
         zh: w.zh,
-        tip: `中文意思：${w.zh}`,
+        tip: `发音提示：仔细听重音，对照 IPA ${w.ipa}`,
         exampleEn: w.exampleEn,
         exampleZh: w.exampleZh,
         due: 0,
       });
       added++;
     });
-    saveState();
+    persist();
     const status = document.getElementById("vocab-add-status");
-    if (status) status.textContent = added ? `已把 ${added} 个今日单词加入复习本。` : "这些词已经在复习本里啦。";
+    if (status) {
+      status.textContent = added
+        ? `已把 ${added} 个词加入「${activeProfile().name}」的复习本。`
+        : "这些词已经在当前档案的复习本里啦。";
+    }
   });
 
-  // —— Review / SRS ——
+  // —— Review / SRS（正面先藏释义，翻面再看中文） ——
   function renderReview() {
     const card = document.getElementById("flashcard");
     const empty = document.getElementById("review-empty");
     const srs = document.getElementById("srs-row");
+    if (!card || !empty || !srs) return;
     if (!state.wrongBook.length) {
       card.style.display = "none";
       srs.style.display = "none";
@@ -945,17 +1141,27 @@
     document.getElementById("fc-word").textContent = item.word;
     document.getElementById("fc-ipa").textContent = item.ipa;
     const zhEl = document.getElementById("fc-zh");
-    if (zhEl) zhEl.textContent = item.zh ? `中文意思：${item.zh}` : "";
+    if (zhEl) {
+      zhEl.innerHTML = `<span class="gloss-label">释义</span><span class="gloss-text">${escapeHtml(item.zh || "（暂无）")}</span>`;
+    }
     const tipParts = [];
     if (item.tip) tipParts.push(item.tip);
     if (item.exampleEn) tipParts.push(`例句：${item.exampleEn}`);
     if (item.exampleZh) tipParts.push(`译文：${item.exampleZh}`);
     document.getElementById("fc-tip").textContent = tipParts.join("\n") || "（暂无提示）";
-    document.getElementById("review-count").textContent = `${state.reviewIndex + 1} / ${state.wrongBook.length}`;
+    document.getElementById("review-count").textContent = `${activeProfile().name} · ${state.reviewIndex + 1} / ${state.wrongBook.length}`;
   }
 
-  document.getElementById("flashcard")?.addEventListener("click", () => {
-    document.getElementById("flashcard").classList.toggle("revealed");
+  function toggleFlashcard() {
+    document.getElementById("flashcard")?.classList.toggle("revealed");
+  }
+
+  document.getElementById("flashcard")?.addEventListener("click", toggleFlashcard);
+  document.getElementById("flashcard")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggleFlashcard();
+    }
   });
 
   function srsRate(level) {
@@ -976,7 +1182,7 @@
       state.wrongBook.push(cur);
       if (state.reviewIndex >= state.wrongBook.length) state.reviewIndex = 0;
     }
-    saveState();
+    persist();
     renderReview();
   }
 
@@ -988,5 +1194,6 @@
   renderPronounceChips();
   updatePronouncePanel();
   renderLesson();
+  renderProfileUI();
   navigate(location.hash || "#home");
 })();
