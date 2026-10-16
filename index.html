@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#e07a5f" />
   <meta name="description" content="口语小站：妹妹免登录学英语打卡升级；哥哥管理端看进度发任务；ee 自动每日任务" />
   <title>口语小站 · 任务升级练口语 v8</title>
-  <link rel="stylesheet" href="css/styles.css?v=8" />
+  <link rel="stylesheet" href="css/styles.css?v=9" />
 </head>
 <body>
   <!-- ========== 学习端（妹妹，免登录） ========== -->
@@ -59,34 +59,38 @@
         </div>
 
         <div class="card" id="cloud-settings-card">
-          <h3>☁️ 云同步设置 <span class="badge-soft live">Worker 已上线</span></h3>
-          <p class="hint ok-box" id="cloud-honesty">✅ <strong>云 API 已 live。</strong>默认 API Base 已填好；兄妹约定同一<strong>家庭同步码</strong>并启用同步即可。哥哥管理端可一键「初始化家庭房间 + 测试连通」。导出 / 导入仍作备用。</p>
+          <h3>☁️ 云同步设置 <span class="badge-soft live">国内域名 v9</span></h3>
+          <p class="hint ok-box" id="cloud-honesty">✅ <strong>已改用国内友好域名</strong> <code>kouyu-api.allovemiku.top</code>（不再默认走易被拦的 workers.dev）。兄妹约定同一<strong>家庭同步码</strong>；连通失败会自动试备用节点，仍不通请用下方「导出给哥哥」。</p>
           <label class="field-label">家庭同步码（兄妹约定，至少 4 位字母数字）</label>
           <input id="cloud-family-code" class="field-input" placeholder="例如 kncre-mei-01" autocomplete="off" />
-          <label class="field-label">API Base（可改；默认已指向 live Worker）</label>
-          <input id="cloud-api-base" class="field-input" placeholder="https://kouyu-xiaozhan-api.kncrty.workers.dev" autocomplete="off" />
+          <label class="field-label">API Base（默认国内域名；一般不用改）</label>
+          <input id="cloud-api-base" class="field-input" placeholder="https://kouyu-api.allovemiku.top" autocomplete="off" />
+          <label class="field-label">备用 API Base（可选；连通失败时自动尝试）</label>
+          <input id="cloud-api-base-alt" class="field-input" placeholder="https://kouyu-xiaozhan-api.kncrty.workers.dev" autocomplete="off" />
           <label class="field-label">可选 · Family Secret（若 Worker 设置了 FAMILY_SECRET）</label>
           <input id="cloud-family-secret" class="field-input" type="password" placeholder="通常留空" autocomplete="off" />
           <label class="check-row"><input type="checkbox" id="cloud-sync-enabled" /> 启用云同步（妹妹进度防抖自动推送）</label>
           <div class="btn-row" style="margin-top:10px;">
             <button type="button" id="btn-cloud-quick-enable" class="btn btn-primary">🚀 快速启用同步</button>
-            <button type="button" id="btn-cloud-oneclick-learn" class="btn btn-secondary">⚡ 测试连通</button>
+            <button type="button" id="btn-cloud-oneclick-learn" class="btn btn-secondary">⚡ 测试连通 / 一键重试</button>
+            <button type="button" id="btn-cloud-reset-cn" class="btn btn-ghost">重置国内域名</button>
             <button type="button" id="btn-cloud-save" class="btn btn-ghost">保存设置</button>
             <button type="button" id="btn-cloud-push-now" class="btn btn-ghost">立即推送</button>
           </div>
-          <p class="hint" style="margin-top:6px;">「快速启用」自动勾选同步并补全同步码；「测试连通」会测延迟（慢时可重试，或用导出/导入备用）。家庭房间初始化在管理端一键完成。</p>
+          <p class="hint" style="margin-top:6px;">「测试连通」会依次试主域名与备用；失败 toast 会提示导出。家庭房间初始化在管理端一键完成。</p>
           <p id="cloud-sync-status" class="status-toast cloud-status">状态：未配置 · 上次同步：—</p>
         </div>
 
-        <div class="card">
-          <h3>📤 本地导出 / 导入 <span class="badge-soft">始终可用</span></h3>
-          <p class="hint">云同步未就绪时的备用方案：导出同步包发给哥哥，他在管理端导入。</p>
+        <div class="card" id="local-sync-card">
+          <h3>📤 本地导出 / 导入 <span class="badge-soft">国内必备备用</span></h3>
+          <p class="hint">云连不上时：妹妹点「导出给哥哥」发文件/微信；哥哥在管理端「导入她的进度」。也可点「复制同步包」粘贴到聊天。</p>
           <div class="btn-row">
-            <button type="button" id="btn-export-sync" class="btn btn-primary">📤 导出同步码 / 进度</button>
-            <button type="button" id="btn-import-profile" class="btn btn-secondary">📥 导入备份</button>
+            <button type="button" id="btn-export-sync" class="btn btn-primary">📤 导出给哥哥</button>
+            <button type="button" id="btn-copy-sync" class="btn btn-secondary">📋 复制同步包</button>
+            <button type="button" id="btn-import-profile" class="btn btn-ghost">📥 导入备份</button>
             <input id="import-file-input" type="file" accept="application/json,.json" hidden />
           </div>
-          <p class="hint backup-tip">💡 本机数据在浏览器 localStorage。换设备请导出再导入。</p>
+          <p class="hint backup-tip">💡 本机数据在浏览器 localStorage。换手机务必先导出。</p>
         </div>
 
         <div class="card">
@@ -431,22 +435,23 @@
 
         <div class="card">
           <h3>☁️ 云端 · 一键连通 / 拉取</h3>
-          <p class="hint">API 已默认指向 live Worker。填好家庭同步码后点「一键初始化 + 测试连通」（健康检查 + 创建/复用家庭房间）。</p>
+          <p class="hint">默认 API：<code>https://kouyu-api.allovemiku.top</code>（国内友好）。填同步码后点「一键初始化 + 测试连通」；连不上让妹妹导出 JSON 再在此导入。</p>
           <label class="field-label">家庭同步码</label>
           <input id="adm-cloud-family-code" class="field-input" placeholder="例如 kncre-mei-01" autocomplete="off" />
           <label class="field-label">API Base</label>
-          <input id="adm-cloud-api-base" class="field-input" placeholder="https://kouyu-xiaozhan-api.kncrty.workers.dev" autocomplete="off" />
+          <input id="adm-cloud-api-base" class="field-input" placeholder="https://kouyu-api.allovemiku.top" autocomplete="off" />
           <div class="btn-row" style="margin-top:10px;">
             <button type="button" id="btn-cloud-oneclick" class="btn btn-primary">⚡ 一键初始化 + 测试连通</button>
             <button type="button" id="btn-cloud-init-family" class="btn btn-secondary">仅初始化家庭房间</button>
             <button type="button" id="btn-cloud-pull" class="btn btn-ghost">从云端拉取</button>
+            <button type="button" id="btn-cloud-reset-cn-adm" class="btn btn-ghost">重置国内域名</button>
           </div>
           <p id="adm-cloud-status" class="status-toast">云端：—</p>
         </div>
 
         <div class="card">
-          <h3>📥 导入妹妹进度（跨设备备用）</h3>
-          <p class="hint">同一手机可直接看本机妹妹档案；不同设备仍可用导出 JSON。云同步就绪后可少用此项。</p>
+          <h3>📥 导入妹妹进度（跨设备 / 国内备用）</h3>
+          <p class="hint">国内云连不上时：让妹妹点「导出给哥哥」或「复制同步包」，你在此导入即可看进度。</p>
           <button type="button" id="btn-import-sister" class="btn btn-secondary">导入她的进度 JSON</button>
           <input id="adm-import-file" type="file" accept="application/json,.json" hidden />
         </div>
@@ -481,11 +486,11 @@
   </div>
   <div id="app-toast" class="app-toast" role="status" aria-live="polite"></div>
 
-  <script src="js/tts.js?v=8"></script>
-  <script src="js/storage.js?v=8"></script>
-  <script src="js/cloud.js?v=8"></script>
-  <script src="js/game.js?v=8"></script>
-  <script src="js/admin.js?v=8"></script>
-  <script src="js/app.js?v=8"></script>
+  <script src="js/tts.js?v=9"></script>
+  <script src="js/storage.js?v=9"></script>
+  <script src="js/cloud.js?v=9"></script>
+  <script src="js/game.js?v=9"></script>
+  <script src="js/admin.js?v=9"></script>
+  <script src="js/app.js?v=9"></script>
 </body>
 </html>

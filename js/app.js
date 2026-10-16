@@ -1,4 +1,4 @@
-/* 口语小站 · 学习端主逻辑 v8 · 手机发音 / 下一步 / 探活 */
+/* 口语小站 · 学习端主逻辑 v9 · 手机发音 / 下一步 / 探活 */
 (function () {
   "use strict";
 
@@ -62,22 +62,31 @@
     const cfg = Cloud.loadCloud();
     const codeEl = document.getElementById("cloud-family-code");
     const baseEl = document.getElementById("cloud-api-base");
+    const altEl = document.getElementById("cloud-api-base-alt");
     const secEl = document.getElementById("cloud-family-secret");
     const enEl = document.getElementById("cloud-sync-enabled");
     if (codeEl) codeEl.value = cfg.familyCode || "";
     if (baseEl) baseEl.value = cfg.apiBase || Cloud.DEFAULT_API_BASE;
+    if (altEl) altEl.value = cfg.apiBaseAlt || Cloud.LEGACY_API_BASE || "";
     if (secEl) secEl.value = cfg.familySecret || "";
     if (enEl) enEl.checked = !!cfg.syncEnabled;
     renderCloudStatus();
 
-    document.getElementById("btn-cloud-save")?.addEventListener("click", () => {
-      const next = Cloud.loadCloud();
+    function readCloudFields(next) {
       next.familyCode = Cloud.normalizeCode(codeEl?.value || "");
-      next.apiBase = Cloud.normalizeBase(baseEl?.value || "");
+      next.apiBase = Cloud.normalizeBase(baseEl?.value || "") || Cloud.DEFAULT_API_BASE;
+      next.apiBaseAlt = Cloud.normalizeBase(altEl?.value || "");
       next.familySecret = (secEl?.value || "").trim();
       next.syncEnabled = !!enEl?.checked;
+      if (baseEl) baseEl.value = next.apiBase;
+      if (altEl && next.apiBaseAlt) altEl.value = next.apiBaseAlt;
+      return next;
+    }
+
+    document.getElementById("btn-cloud-save")?.addEventListener("click", () => {
+      const next = readCloudFields(Cloud.loadCloud());
       if (next.syncEnabled && (!next.apiBase || next.familyCode.length < 4)) {
-        toast("启用云同步需要：家庭同步码（≥4）+ API Base（Worker 地址）");
+        toast("启用云同步需要：家庭同步码（≥4）+ API Base");
         return;
       }
       if (!next.apiBase) {
@@ -88,7 +97,6 @@
         next.lastSyncStatus = "已启用，等待推送";
       }
       Cloud.saveCloud(next);
-      // Keep game EE_CONFIG in sync for task fetch
       if (Gm.EE_CONFIG) {
         Gm.EE_CONFIG.apiEndpoint = next.apiBase ? next.apiBase + "/api/ee/tasks/generate" : null;
         Gm.EE_CONFIG.mode = next.apiBase ? "api" : "local-auto";
@@ -101,38 +109,61 @@
       document.getElementById("btn-cloud-oneclick-learn")?.click();
     });
 
-    document.getElementById("btn-cloud-oneclick-learn")?.addEventListener("click", async () => {
-      const next = Cloud.loadCloud();
-      next.familyCode = Cloud.normalizeCode(codeEl?.value || "");
-      next.apiBase = Cloud.normalizeBase(baseEl?.value || "") || Cloud.DEFAULT_API_BASE;
-      next.familySecret = (secEl?.value || "").trim();
-      next.syncEnabled = !!enEl?.checked;
+    document.getElementById("btn-cloud-reset-cn")?.addEventListener("click", () => {
+      const next = Cloud.resetToChinaFriendlyBase();
       if (baseEl) baseEl.value = next.apiBase;
+      if (altEl) altEl.value = next.apiBaseAlt || Cloud.LEGACY_API_BASE;
+      if (Gm.EE_CONFIG) {
+        Gm.EE_CONFIG.apiEndpoint = next.apiBase + "/api/ee/tasks/generate";
+        Gm.EE_CONFIG.mode = "api";
+      }
+      renderCloudStatus();
+      toast("已重置为国内友好域名 kouyu-api.allovemiku.top，请再点「测试连通」");
+    });
+
+    document.getElementById("btn-cloud-oneclick-learn")?.addEventListener("click", async () => {
+      const next = readCloudFields(Cloud.loadCloud());
       Cloud.saveCloud(next);
       if (Gm.EE_CONFIG) {
         Gm.EE_CONFIG.apiEndpoint = next.apiBase + "/api/ee/tasks/generate";
         Gm.EE_CONFIG.mode = "api";
       }
-      toast("正在测试云端连通…");
+      toast("正在测试云端连通（国内域名优先）…");
       try {
         const result = await Cloud.oneClickConnect({
           familyCode: next.familyCode,
           apiBase: next.apiBase,
+          apiBaseAlt: next.apiBaseAlt,
           familySecret: next.familySecret,
           syncEnabled: next.syncEnabled,
+          retries: 3,
         });
+        const fresh = Cloud.loadCloud();
+        if (baseEl) baseEl.value = fresh.apiBase || next.apiBase;
         const msg = (result.steps || []).join(" · ");
         const lat = result.health && result.health.latencyMs != null ? result.health.latencyMs + "ms" : "";
         if (result.ok) {
           toast("连通成功" + (lat ? " · " + lat : "") + "：" + msg);
         } else {
-          toast("连通失败：" + (result.error || msg) + "（可稍后重试或用导出/导入备用）");
+          toast("连通失败：" + (result.error || msg));
+          if (result.suggestExport) {
+            setTimeout(() => {
+              if (window.confirm("云端暂时连不上。要现在导出进度发给哥哥吗？\n\n【确定】下载同步包\n【取消】稍后再试")) {
+                document.getElementById("btn-export-sync")?.click();
+              }
+            }, 400);
+          }
         }
         renderCloudStatus();
       } catch (e) {
-        toast("连通失败：" + (e.message || e) + "（可稍后重试）");
+        toast("连通失败：" + (e.message || e));
         Cloud.setStatus("连接失败", e.message || String(e));
         renderCloudStatus();
+        setTimeout(() => {
+          if (window.confirm("云端暂时连不上。要现在导出进度发给哥哥吗？")) {
+            document.getElementById("btn-export-sync")?.click();
+          }
+        }, 400);
       }
     });
 
@@ -145,9 +176,11 @@
       }
       const base = Cloud.normalizeBase(baseEl?.value || "") || Cloud.DEFAULT_API_BASE;
       if (baseEl) baseEl.value = base;
+      if (altEl && !altEl.value) altEl.value = Cloud.LEGACY_API_BASE;
       if (enEl) enEl.checked = true;
       next.familyCode = code;
       next.apiBase = base;
+      next.apiBaseAlt = Cloud.normalizeBase(altEl?.value || "") || Cloud.LEGACY_API_BASE;
       next.familySecret = (secEl?.value || "").trim();
       next.syncEnabled = true;
       next.lastSyncStatus = "已快速启用，建议点「测试连通」";
@@ -173,6 +206,13 @@
       } catch (e) {
         toast("推送失败：" + (e.message || e));
         renderCloudStatus();
+        if (e && e.suggestExport) {
+          setTimeout(() => {
+            if (window.confirm("推送失败。要导出进度发给哥哥吗？")) {
+              document.getElementById("btn-export-sync")?.click();
+            }
+          }, 300);
+        }
       }
     });
 
@@ -480,9 +520,17 @@
   });
 
   // —— Export / Import ——
+  function buildSisterExportPayload() {
+    const profile = meta.profiles.find((p) => p.id === St.SISTER_ID) || {
+      id: St.SISTER_ID,
+      name: "妹妹",
+      emoji: "👧",
+    };
+    return St.exportSisterPayload(profile, state);
+  }
+
   document.getElementById("btn-export-sync")?.addEventListener("click", () => {
-    const profile = meta.profiles.find((p) => p.id === St.SISTER_ID) || { id: St.SISTER_ID, name: "妹妹", emoji: "👧" };
-    const payload = St.exportSisterPayload(profile, state);
+    const payload = buildSisterExportPayload();
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -490,6 +538,26 @@
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
     toast("已下载同步包，发给哥哥后他在管理端导入即可看进度");
+  });
+
+  document.getElementById("btn-copy-sync")?.addEventListener("click", async () => {
+    const payload = buildSisterExportPayload();
+    const textJson = JSON.stringify(payload);
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(textJson);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = textJson;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        ta.remove();
+      }
+      toast("同步包已复制，可粘贴到微信发给哥哥（他保存为 .json 再导入）");
+    } catch (e) {
+      toast("复制失败，请改用「导出给哥哥」下载文件");
+    }
   });
 
   document.getElementById("btn-import-profile")?.addEventListener("click", () => {

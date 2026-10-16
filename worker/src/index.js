@@ -1,5 +1,5 @@
 /**
- * 口语小站 · Cloudflare Worker (LIVE v8)
+ * 口语小站 · Cloudflare Worker (LIVE v9)
  * 家庭同步 + ee 教练 API
  *
  * Prefer: Workers AI (non-deprecated models) → OpenAI → rules
@@ -11,6 +11,7 @@
 
 const CORS_ORIGINS = [
   "https://glintforme.github.io",
+  "https://kouyu-api.allovemiku.top",
   "http://localhost:8765",
   "http://127.0.0.1:8765",
   "http://localhost:5500",
@@ -427,17 +428,34 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders(request) });
     }
 
+    // Ultra-light ping: never touches AI / KV — for CN connectivity probe
+    if (url.pathname === "/api/ping") {
+      return json(
+        {
+          ok: true,
+          service: "kouyu-xiaozhan-worker",
+          version: 9,
+          ping: true,
+          host: url.hostname,
+          ts: new Date().toISOString(),
+        },
+        200,
+        request
+      );
+    }
+
     if (url.pathname === "/" || url.pathname === "/api/health") {
       const deep = url.searchParams.get("deep") === "1" || url.searchParams.get("probe") === "ai";
       const body = {
         ok: true,
         service: "kouyu-xiaozhan-worker",
-        version: 8,
+        version: 9,
         sync: !!env.SYNC,
         ai: !!(env.AI || env.OPENAI_API_KEY),
         aiBinding: !!env.AI,
         aiModels: AI_MODELS,
         familySecretRequired: !!env.FAMILY_SECRET,
+        host: url.hostname,
         ts: new Date().toISOString(),
       };
       if (deep) {

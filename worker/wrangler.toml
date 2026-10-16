@@ -1,5 +1,6 @@
-# 口语小站 · Cloudflare Worker（已 live）
-# API: https://kouyu-xiaozhan-api.kncrty.workers.dev
+# 口语小站 · Cloudflare Worker（v9 · 国内友好自定义域名）
+# Primary: https://kouyu-api.allovemiku.top
+# Legacy:  https://kouyu-xiaozhan-api.kncrty.workers.dev
 # KV: kouyu-sync
 
 name = "kouyu-xiaozhan-api"
@@ -7,6 +8,10 @@ main = "src/index.js"
 compatibility_date = "2026-10-01"
 
 workers_dev = true
+
+[[routes]]
+pattern = "kouyu-api.allovemiku.top"
+custom_domain = true
 
 [[kv_namespaces]]
 binding = "SYNC"

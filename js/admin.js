@@ -499,13 +499,30 @@
           toast("一键连通成功：" + msg);
         } else {
           setAdmCloudStatus("云端：一键连通失败 · " + (result.error || msg));
-          toast("一键连通失败：" + (result.error || msg));
+          toast("一键连通失败：" + (result.error || msg) + (result.suggestExport ? " · 可让妹妹导出 JSON" : ""));
         }
         renderDashboard();
       } catch (e) {
         setAdmCloudStatus("云端：一键连通失败 · " + (e.message || e));
         toast("一键连通失败：" + (e.message || e));
       }
+    });
+
+    document.getElementById("btn-cloud-reset-cn-adm")?.addEventListener("click", () => {
+      const Cloud = global.KouyuCloud;
+      if (!Cloud || !Cloud.resetToChinaFriendlyBase) {
+        toast("云模块未加载");
+        return;
+      }
+      const next = Cloud.resetToChinaFriendlyBase();
+      const baseEl = document.getElementById("adm-cloud-api-base");
+      const learnBase = document.getElementById("cloud-api-base");
+      const learnAlt = document.getElementById("cloud-api-base-alt");
+      if (baseEl) baseEl.value = next.apiBase;
+      if (learnBase) learnBase.value = next.apiBase;
+      if (learnAlt) learnAlt.value = next.apiBaseAlt || Cloud.LEGACY_API_BASE;
+      setAdmCloudStatus("云端：已重置为 " + next.apiBase);
+      toast("已重置国内友好域名，请再点一键连通");
     });
 
     document.getElementById("btn-cloud-pull")?.addEventListener("click", async () => {
