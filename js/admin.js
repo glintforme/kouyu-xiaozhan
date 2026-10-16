@@ -76,6 +76,14 @@
     if (setup) setup.style.display = "none";
     if (login) login.style.display = "none";
     if (dash) dash.style.display = "block";
+    const Cloud = global.KouyuCloud;
+    if (Cloud) {
+      const cfg = Cloud.loadCloud();
+      const codeEl = document.getElementById("adm-cloud-family-code");
+      const baseEl = document.getElementById("adm-cloud-api-base");
+      if (codeEl && !codeEl.value) codeEl.value = cfg.familyCode || "";
+      if (baseEl) baseEl.value = cfg.apiBase || Cloud.DEFAULT_API_BASE;
+    }
     renderDashboard();
   }
 
@@ -101,6 +109,7 @@
   function renderDashboard() {
     const { state, source } = sisterDisplayState();
     const prog = G().xpProgress(state.xp || 0);
+    const Cloud = global.KouyuCloud;
     const set = (id, val) => {
       const el = document.getElementById(id);
       if (el) el.textContent = val;
@@ -115,7 +124,12 @@
 
     const tasks = state.gameTasks || [];
     const done = tasks.filter((t) => t.done).length;
-    set("adm-task-summary", `${done} / ${tasks.length} 任务已完成`);
+    const total = tasks.length;
+    const rate = total ? Math.round((done / total) * 100) : 0;
+    set("adm-task-summary", `${done} / ${total} 任务已完成（完成率 ${rate}%）`);
+    const rateBar = document.getElementById("adm-task-rate-bar");
+    if (rateBar) rateBar.style.width = `${rate}%`;
+    set("adm-task-rate-label", total ? `今日任务完成率 ${rate}%` : "暂无任务");
 
     const taskList = document.getElementById("adm-task-list");
     if (taskList) {
@@ -141,9 +155,43 @@
 
     const challenges = state.challengeResults || [];
     const chEl = document.getElementById("adm-challenges");
+    const summaryEl = document.getElementById("adm-challenge-summary");
+    if (summaryEl) {
+      if (!challenges.length) {
+        summaryEl.innerHTML = "<p class='hint'>还没有测验记录。周 / 月 / 半年 / 年测通过后会出现在这里。</p>";
+      } else {
+        const byKind = {};
+        challenges.forEach((c) => {
+          const k = c.kind || "unknown";
+          if (!byKind[k]) byKind[k] = [];
+          byKind[k].push(c);
+        });
+        const kinds = ["weekly", "monthly", "halfyear", "yearly"];
+        const chips = kinds
+          .map((k) => {
+            const list = byKind[k] || [];
+            const meta = G().CHALLENGE_META[k] || { label: k, emoji: "📝" };
+            if (!list.length) {
+              return `<div class="adm-ch-chip muted">${meta.emoji} ${meta.label}<br><small>未测</small></div>`;
+            }
+            const best = list.reduce((a, b) => ((a.ratio || 0) >= (b.ratio || 0) ? a : b));
+            const latest = list[0];
+            const pct = Math.round((best.ratio || 0) * 100);
+            const passN = list.filter((x) => x.passed).length;
+            return `<div class="adm-ch-chip ${best.passed ? "pass" : "fail"}">${meta.emoji} ${meta.label}<br><strong>${pct}%</strong> 最佳 · ${passN}/${list.length} 过<br><small>最近 ${(latest.at || "").slice(0, 10)}</small></div>`;
+          })
+          .join("");
+        const avg =
+          Math.round(
+            (challenges.reduce((s, c) => s + (c.ratio || 0), 0) / challenges.length) * 100
+          ) || 0;
+        summaryEl.innerHTML =
+          `<div class="adm-ch-summary-head">共 ${challenges.length} 次测验 · 平均得分 <strong>${avg}%</strong></div><div class="adm-ch-grid">${chips}</div>`;
+      }
+    }
     if (chEl) {
       if (!challenges.length) {
-        chEl.innerHTML = "<p class='hint'>还没有测验记录。</p>";
+        chEl.innerHTML = "";
       } else {
         chEl.innerHTML = challenges
           .slice(0, 12)
@@ -154,6 +202,25 @@
           })
           .join("");
       }
+    }
+
+    // Last sync time (cloud + snapshot)
+    const syncEl = document.getElementById("adm-last-sync");
+    if (syncEl && Cloud) {
+      const cfg = Cloud.loadCloud();
+      const snap = S().loadAdmin().importedSisterSnapshot;
+      const parts = [];
+      parts.push("云端状态：" + (cfg.lastSyncStatus || "—"));
+      parts.push("上次同步：" + Cloud.formatSyncTime(cfg.lastSyncAt));
+      if (cfg.lastPullAt) parts.push("上次拉取：" + Cloud.formatSyncTime(cfg.lastPullAt));
+      if (snap && snap.exportedAt) {
+        parts.push(
+          "快照时间：" +
+            Cloud.formatSyncTime(snap.exportedAt) +
+            (snap.fromCloud ? "（云端）" : "（本地导入）")
+        );
+      }
+      syncEl.textContent = parts.join(" · ");
     }
 
     const pub = S().loadAdmin().publishedTasks || [];
@@ -172,7 +239,6 @@
           const admin = S().loadAdmin();
           admin.publishedTasks = (admin.publishedTasks || []).filter((t) => t.id !== btn.getAttribute("data-del-pub"));
           S().saveAdmin(admin);
-          // also remove from sister if unfinished
           const st = S().loadProfileState(S().SISTER_ID);
           st.gameTasks = (st.gameTasks || []).filter((t) => t.id !== btn.getAttribute("data-del-pub") || t.done);
           S().saveProfileState(S().SISTER_ID, st);
@@ -331,7 +397,7 @@
       }
       const cfg = Cloud.loadCloud();
       if (!Cloud.normalizeBase(cfg.apiBase) || Cloud.normalizeCode(cfg.familyCode).length < 4) {
-        toast("请先在学习端首页填写并保存：家庭同步码 + API Base");
+        toast("请先填写并保存：家庭同步码 + API Base（默认已填 Worker 地址）");
         setAdmCloudStatus("云端：未配置同步码或 API Base");
         return;
       }
@@ -351,9 +417,70 @@
               : "云端：家庭房间就绪"
         );
         toast("家庭房间已就绪");
+        renderDashboard();
       } catch (e) {
         setAdmCloudStatus("云端：初始化失败 · " + (e.message || e));
-        toast("初始化失败：" + (e.message || e) + "（Worker 未部署时属正常）");
+        toast("初始化失败：" + (e.message || e));
+      }
+    });
+
+    document.getElementById("btn-cloud-oneclick")?.addEventListener("click", async () => {
+      const Cloud = global.KouyuCloud;
+      if (!Cloud) {
+        toast("云模块未加载");
+        return;
+      }
+      const codeEl = document.getElementById("adm-cloud-family-code");
+      const baseEl = document.getElementById("adm-cloud-api-base");
+      const admin = S().loadAdmin();
+      if (!admin.setupDone || !admin.passwordHash) {
+        toast("请先设置管理密码，再一键初始化");
+        return;
+      }
+      const familyCode =
+        (codeEl && codeEl.value) ||
+        Cloud.loadCloud().familyCode ||
+        "";
+      const apiBase =
+        (baseEl && baseEl.value) ||
+        Cloud.loadCloud().apiBase ||
+        Cloud.DEFAULT_API_BASE;
+      if (Cloud.normalizeCode(familyCode).length < 4) {
+        toast("请填写家庭同步码（至少 4 位字母数字）");
+        setAdmCloudStatus("云端：同步码不足 4 位");
+        return;
+      }
+      setAdmCloudStatus("云端：一键连通中…");
+      toast("正在测试连通并初始化家庭房间…");
+      try {
+        const result = await Cloud.oneClickConnect({
+          familyCode,
+          apiBase,
+          syncEnabled: true,
+          adminPasswordHash: admin.passwordHash,
+        });
+        // mirror fields into learn-side inputs if present
+        const learnCode = document.getElementById("cloud-family-code");
+        const learnBase = document.getElementById("cloud-api-base");
+        const learnEn = document.getElementById("cloud-sync-enabled");
+        if (learnCode) learnCode.value = Cloud.normalizeCode(familyCode);
+        if (learnBase) learnBase.value = Cloud.normalizeBase(apiBase) || Cloud.DEFAULT_API_BASE;
+        if (learnEn) learnEn.checked = true;
+        if (codeEl) codeEl.value = Cloud.normalizeCode(familyCode);
+        if (baseEl) baseEl.value = Cloud.normalizeBase(apiBase) || Cloud.DEFAULT_API_BASE;
+
+        const msg = (result.steps || []).join(" · ");
+        if (result.ok) {
+          setAdmCloudStatus("云端：一键连通成功 · " + msg);
+          toast("一键连通成功：" + msg);
+        } else {
+          setAdmCloudStatus("云端：一键连通失败 · " + (result.error || msg));
+          toast("一键连通失败：" + (result.error || msg));
+        }
+        renderDashboard();
+      } catch (e) {
+        setAdmCloudStatus("云端：一键连通失败 · " + (e.message || e));
+        toast("一键连通失败：" + (e.message || e));
       }
     });
 

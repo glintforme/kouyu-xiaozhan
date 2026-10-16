@@ -1,11 +1,12 @@
 /**
- * 口语小站 · Cloudflare Worker
- * 家庭同步 + ee 教练 API（规则版可即用；Workers AI / OpenAI 可后插）
+ * 口语小站 · Cloudflare Worker (LIVE)
+ * 家庭同步 + ee 教练 API
  *
- * 绑定：KV namespace SYNC
- * 可选环境变量：FAMILY_SECRET、OPENAI_API_KEY、AI (Workers AI binding)
+ * Prefer: Workers AI → OpenAI → rules
+ * Binding: KV SYNC · optional AI
+ * Secrets: FAMILY_SECRET, OPENAI_API_KEY
  *
- * ⚠️ 部署前云同步不可用。GitHub Pages 前端已预留 API Base 配置。
+ * Live: https://kouyu-xiaozhan-api.kncrty.workers.dev
  */
 
 const CORS_ORIGINS = [
@@ -68,7 +69,7 @@ function normalizeFamilyCode(code) {
 
 function checkFamilySecret(request, env) {
   const secret = env.FAMILY_SECRET;
-  if (!secret) return true; // optional
+  if (!secret) return true;
   const got = request.headers.get("X-Family-Secret") || "";
   return got === secret;
 }
@@ -76,6 +77,17 @@ function checkFamilySecret(request, env) {
 function familyKey(code, suffix) {
   return `family:${code}:${suffix}`;
 }
+
+const EE_SYSTEM_PROMPT = `你是「教练 ee」（口语教练），服务对象是一位中国大二英语专业、口语仍偏弱的学生（可称「妹妹」或学习者名字）。
+
+回复要求（必须遵守）：
+1. 中英双语：先简短中文反馈，再给英文示范句；关键英文词加「📌 词 — 中文」释义。
+2. 温和纠错：若有语法/用词问题，标 ❌ 原句 → ✅ 改正，并一句说清原因。
+3. 发音：难词给简易 IPA（如 /θɪŋk/），提示口型。
+4. 鼓励开口：每条结尾给一个很短的跟读/造句任务。
+5. 长度：控制在约 80–140 汉字+英文合计可读范围内，不要长篇大论。
+6. 不要声称自己是某个底层大模型；自称教练 ee 即可。
+7. 可自然融入英语专业小词（discuss / paraphrase / thesis / theme）与礼貌交流句。`;
 
 /** Rule-based ee coach — Chinese + English correction persona */
 function ruleBasedCoach(messages, learnerName) {
@@ -85,41 +97,49 @@ function ruleBasedCoach(messages, learnerName) {
     "";
   const t = String(last).trim();
   if (!t) {
-    return `教练 ee：Hi ${name}! 发一句英文给我吧～\nTry: "I went to the library yesterday."`;
+    return `教练 ee：Hi ${name}! 发一句英文给我吧～\nTry: "I went to the library yesterday."\n\n📌 library — 图书馆 · yesterday — 昨天`;
   }
 
   const rules = [
     {
       test: /i go to .+ yesterday|yesterday i go/i,
-      reply: `教练 ee：时态提醒！yesterday（昨天）要用过去式。\n❌ I go to school yesterday.\n✅ I went to school yesterday.\n\n📌 go → went（过去式）· yesterday — 昨天\n再试一句带 yesterday 的过去式？`,
+      reply: `教练 ee：时态提醒！yesterday（昨天）要用过去式。\n❌ I go to school yesterday.\n✅ I went to school yesterday.\n\n📌 go → went（过去式）· yesterday — 昨天\n跟读任务：用 yesterday 再说一句过去式。`,
+    },
+    {
+      test: /\bi am go\b|\bi can speaking\b|\bi very like\b/i,
+      reply: `教练 ee：结构小修\n你写的：「${t.slice(0, 60)}」\n更自然：\n• I am going… / I can speak…（情态动词后用原形）\n• I like… very much.（不要 I very like）\n\n📌 can + 原形 · like … very much — 非常喜欢\n再发一句改正后的句子～`,
     },
     {
       test: /\bthink\b|纠音.?think|\/θ/i,
-      reply: `教练 ee：think /θɪŋk/\n舌尖轻触上牙，气流从齿缝出（不要发成 sink）。\n例句：I think this essay needs a clearer thesis.\n（我认为这篇论文需要更清晰的论点。）\n\n📌 essay — 论文 · thesis — 论点`,
+      reply: `教练 ee：think /θɪŋk/\n舌尖轻触上牙，气流从齿缝出（不要发成 sink）。\n例句：I think this essay needs a clearer thesis.\n（我认为这篇论文需要更清晰的论点。）\n\n📌 essay — 论文 · thesis — 论点\n跟读 3 遍：I think…`,
     },
     {
-      test: /discuss|paraphrase|academic|学术/i,
-      reply: `教练 ee：英语专业常用\n• discuss /dɪˈskʌs/ — 讨论\n• paraphrase /ˈpærəfreɪz/ — 改述\n试着说：Let's discuss the theme, then paraphrase the key sentence.\n\n📌 theme — 主题 · key sentence — 关键句`,
+      test: /discuss|paraphrase|academic|学术|thesis/i,
+      reply: `教练 ee：英语专业常用\n• discuss /dɪˈskʌs/ — 讨论\n• paraphrase /ˈpærəfreɪz/ — 改述\n• thesis /ˈθiːsɪs/ — 论点 / 论文主题\n试着说：Let's discuss the theme, then paraphrase the key sentence.\n\n📌 theme — 主题 · key sentence — 关键句`,
     },
     {
-      test: /hello|hi\b|hey/i,
-      reply: `教练 ee：Hello! Nice to meet you 👋\n你可以回：Nice to meet you too. I'm an English major.\n\n📌 major — 专业 · nice to meet you — 很高兴认识你`,
+      test: /hello|hi\b|hey|你好/i,
+      reply: `教练 ee：Hello! Nice to meet you 👋\n你可以回：Nice to meet you too. I'm an English major.\n\n📌 major — 专业 · nice to meet you — 很高兴认识你\n跟读：I'm an English major.`,
     },
     {
-      test: /how'?s it going|how are you/i,
-      reply: `教练 ee：I'm doing well, thanks! How about you?\n也可以说：Pretty good. / Not bad. / A bit tired but okay.\n\n📌 pretty good — 挺好的 · a bit — 有一点儿`,
+      test: /how'?s it going|how are you|最近好吗/i,
+      reply: `教练 ee：I'm doing well, thanks! How about you?\n也可以说：Pretty good. / Not bad. / A bit tired but okay.\n\n📌 pretty good — 挺好的 · a bit — 有一点儿\n用其中一句回答我～`,
     },
     {
-      test: /foreigner|外国人|听不懂|repeat|交流/i,
-      reply: `教练 ee：交流救命句\n• Could you repeat that, please? — 能再说一遍吗？\n• What do you mean by…? — ……是什么意思？\n• I'm not sure I follow. — 我好像没跟上\n• In my opinion… — 在我看来……\n\n选一句练一练～`,
+      test: /foreigner|外国人|听不懂|repeat|交流|跟不上/i,
+      reply: `教练 ee：交流救命句\n• Could you repeat that, please? — 能再说一遍吗？\n• What do you mean by…? — ……是什么意思？\n• I'm not sure I follow. — 我好像没跟上\n• In my opinion… — 在我看来……\n\n选一句练一练，发给我听～`,
     },
     {
       test: /thank|谢谢|thanks/i,
       reply: `教练 ee：You're welcome!\n也可以：No problem. / Anytime.\n\n📌 welcome — 别客气 · anytime — 随时`,
     },
     {
-      test: /metaphor|literature|文学|theme/i,
+      test: /metaphor|literature|文学|theme|poem/i,
       reply: `教练 ee：文学小词\n• literature — 文学\n• theme — 主题\n• metaphor — 隐喻\n试着说：The theme of this poem is hope.\n\n📌 poem — 诗 · hope — 希望`,
+    },
+    {
+      test: /there (is|are) many|a lot of|have many/i,
+      reply: `教练 ee：量词小贴士\n可数复数：There are many books.\n不可数：There is a lot of water. / much advice\n\n📌 many — 许多（可数）· a lot of — 许多（可数/不可数）\n用 There are… 造一句教室里的东西～`,
     },
   ];
 
@@ -127,65 +147,119 @@ function ruleBasedCoach(messages, learnerName) {
     if (r.test.test(t)) return r.reply;
   }
 
-  // Light grammar nudge for common present-perfect / article slips
-  if (/\bi am go\b|\bi can speaking\b/i.test(t)) {
-    return `教练 ee：结构小修\n你写的："${t}"\n更自然：试着改成 "I am going…" 或 "I can speak…"\n\n📌 情态动词后用原形：can + speak（不是 speaking）\n再发一句给我看看～`;
+  // Generic soft coach: echo + invite full sentence
+  const short = t.length < 12;
+  if (short) {
+    return `教练 ee：收到「${t}」～再试着说成完整句子好吗？\n例如：I want to improve my speaking this semester.\n\n📌 improve — 提高 · speaking — 口语 · semester — 学期\n把完整句发给我，我帮你纠一下。`;
   }
 
-  return `教练 ee：收到！「${t.slice(0, 80)}${t.length > 80 ? "…" : ""}」\n试着用完整句子，例如：\n"Yesterday I went to the library and read for an hour."\n\n📌 library — 图书馆 · hour — 小时\n想纠音就说：帮我纠音 think`;
+  return `教练 ee：收到！「${t.slice(0, 80)}${t.length > 80 ? "…" : ""}」\n不错，继续用完整句子练习。可以试试过去式或观点句：\n"Yesterday I went to the library and read for an hour."\n"In my opinion, practice every day helps a lot."\n\n📌 library — 图书馆 · in my opinion — 在我看来\n想纠音就说：帮我纠音 think`;
+}
+
+function formatMessagesForPrompt(messages) {
+  return (messages || [])
+    .slice(-10)
+    .map((m) => {
+      const role =
+        m.role === "assistant" || m.role === "bot" || m.role === "ee"
+          ? "ee"
+          : "student";
+      return `${role}: ${String(m.content || "").slice(0, 500)}`;
+    })
+    .join("\n");
+}
+
+async function workersAiCoach(env, messages, learnerName) {
+  if (!env.AI || typeof env.AI.run !== "function") return null;
+  const name = learnerName || "同学";
+  const dialogue = formatMessagesForPrompt(messages);
+  const userPrompt = `学习者名字：${name}\n\n对话记录：\n${dialogue || "(empty — greet the learner)"}\n\n请以「教练 ee：」开头回复。`;
+
+  // Prefer messages API when supported; fall back to prompt
+  try {
+    const result = await env.AI.run("@cf/meta/llama-3.1-8b-instruct", {
+      messages: [
+        { role: "system", content: EE_SYSTEM_PROMPT },
+        { role: "user", content: userPrompt },
+      ],
+      max_tokens: 420,
+      temperature: 0.65,
+    });
+    const text =
+      result?.response ||
+      result?.result?.response ||
+      (typeof result === "string" ? result : null);
+    if (text && String(text).trim()) {
+      return { reply: String(text).trim(), engine: "workers-ai" };
+    }
+  } catch (e) {
+    console.warn("Workers AI messages mode failed", e);
+  }
+
+  try {
+    const prompt = `${EE_SYSTEM_PROMPT}\n\n${userPrompt}\n\n教练 ee:`;
+    const result = await env.AI.run("@cf/meta/llama-3.1-8b-instruct", {
+      prompt,
+      max_tokens: 420,
+    });
+    const text = result?.response || result?.result?.response;
+    if (text && String(text).trim()) {
+      return { reply: String(text).trim(), engine: "workers-ai" };
+    }
+  } catch (e) {
+    console.warn("Workers AI prompt mode failed", e);
+  }
+  return null;
+}
+
+async function openAiCoach(env, messages, learnerName) {
+  if (!env.OPENAI_API_KEY) return null;
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: env.OPENAI_MODEL || "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content:
+              EE_SYSTEM_PROMPT +
+              `\nLearner name: ${learnerName || "同学"}.`,
+          },
+          ...(messages || []).slice(-12).map((m) => ({
+            role:
+              m.role === "assistant" || m.role === "bot" || m.role === "ee"
+                ? "assistant"
+                : "user",
+            content: String(m.content || ""),
+          })),
+        ],
+        temperature: 0.7,
+        max_tokens: 420,
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const text = data.choices?.[0]?.message?.content;
+      if (text) return { reply: text, engine: "openai" };
+    }
+  } catch (e) {
+    console.warn("OpenAI coach failed", e);
+  }
+  return null;
 }
 
 async function aiCoach(env, messages, learnerName) {
-  // Prefer OpenAI-compatible if key present
-  if (env.OPENAI_API_KEY) {
-    try {
-      const system = `You are 教练 ee (ee), a warm English speaking coach for a Chinese sophomore English major beginner. Reply in Chinese + English: correct gently, give IPA when useful, gloss key words in Chinese (📌). Keep replies under 120 words. Learner name: ${learnerName || "同学"}.`;
-      const res = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: env.OPENAI_MODEL || "gpt-4o-mini",
-          messages: [
-            { role: "system", content: system },
-            ...(messages || []).slice(-12).map((m) => ({
-              role: m.role === "assistant" || m.role === "bot" ? "assistant" : "user",
-              content: String(m.content || ""),
-            })),
-          ],
-          temperature: 0.7,
-          max_tokens: 400,
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const text = data.choices?.[0]?.message?.content;
-        if (text) return { reply: text, engine: "openai" };
-      }
-    } catch (e) {
-      console.warn("OpenAI coach failed", e);
-    }
-  }
+  // Prefer Workers AI (already bound on live Worker), then OpenAI, then rules
+  const viaAi = await workersAiCoach(env, messages, learnerName);
+  if (viaAi) return viaAi;
 
-  // Workers AI binding (optional): env.AI.run
-  if (env.AI && typeof env.AI.run === "function") {
-    try {
-      const prompt = `你是口语教练 ee。用中英双语温和纠正，关键词附中文释义。学习者：${learnerName || "同学"}。\n对话：\n${(messages || [])
-        .slice(-8)
-        .map((m) => `${m.role}: ${m.content}`)
-        .join("\n")}\n\nee:`;
-      const result = await env.AI.run("@cf/meta/llama-3.1-8b-instruct", {
-        prompt,
-        max_tokens: 300,
-      });
-      const text = result?.response || result?.result?.response;
-      if (text) return { reply: String(text).trim(), engine: "workers-ai" };
-    } catch (e) {
-      console.warn("Workers AI failed", e);
-    }
-  }
+  const viaOpenAi = await openAiCoach(env, messages, learnerName);
+  if (viaOpenAi) return viaOpenAi;
 
   return {
     reply: ruleBasedCoach(messages, learnerName),
@@ -246,12 +320,12 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders(request) });
     }
 
-    // Health
     if (url.pathname === "/" || url.pathname === "/api/health") {
       return json(
         {
           ok: true,
           service: "kouyu-xiaozhan-worker",
+          version: 7,
           sync: !!env.SYNC,
           ai: !!(env.AI || env.OPENAI_API_KEY),
           familySecretRequired: !!env.FAMILY_SECRET,
@@ -269,7 +343,6 @@ export default {
       return bad(request, "KV binding SYNC not configured", 500);
     }
 
-    // POST /api/family/init
     if (url.pathname === "/api/family/init" && request.method === "POST") {
       const body = await readJson(request);
       if (!body) return bad(request, "Invalid JSON");
@@ -281,7 +354,6 @@ export default {
       const adminKey = familyKey(code, "admin");
       const existing = await env.SYNC.get(adminKey);
       if (existing) {
-        // Allow re-init only if same hash (idempotent)
         try {
           const prev = JSON.parse(existing);
           if (prev.hash !== hash) {
@@ -303,7 +375,6 @@ export default {
       return json({ ok: true, familyCode: code, created: true }, 201, request);
     }
 
-    // POST /api/sync/push
     if (url.pathname === "/api/sync/push" && request.method === "POST") {
       const body = await readJson(request);
       if (!body) return bad(request, "Invalid JSON");
@@ -329,7 +400,6 @@ export default {
       return json({ ok: true, familyCode: code, updatedAt }, 200, request);
     }
 
-    // GET /api/sync/pull?familyCode=&role=brother
     if (url.pathname === "/api/sync/pull" && request.method === "GET") {
       const code = normalizeFamilyCode(url.searchParams.get("familyCode"));
       const role = String(url.searchParams.get("role") || "").toLowerCase();
@@ -375,7 +445,6 @@ export default {
       );
     }
 
-    // POST /api/ee/chat
     if (url.pathname === "/api/ee/chat" && request.method === "POST") {
       const body = await readJson(request);
       if (!body) return bad(request, "Invalid JSON");
@@ -394,12 +463,57 @@ export default {
       );
     }
 
-    // POST /api/ee/tasks/generate
     if (url.pathname === "/api/ee/tasks/generate" && request.method === "POST") {
       const body = (await readJson(request)) || {};
       const seed = body.dateKey || body.seed || null;
       const data = generateDailyTasks(seed);
       return json({ ok: true, ...data }, 200, request);
+    }
+
+
+    // GET /api/tts?text=&lang=en — proxy short English clips (Youdao → Google) for CN mobile browsers
+    if (url.pathname === "/api/tts" && request.method === "GET") {
+      const text = String(url.searchParams.get("text") || "").trim().slice(0, 200);
+      const lang = String(url.searchParams.get("lang") || "en").slice(0, 10);
+      if (!text) return bad(request, "text required");
+      const targets = [
+        `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(text)}&type=2`,
+        `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${encodeURIComponent(lang)}&q=${encodeURIComponent(text)}`,
+      ];
+      let lastErr = "upstream failed";
+      for (const target of targets) {
+        try {
+          const up = await fetch(target, {
+            headers: {
+              "User-Agent":
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+              "Accept": "audio/mpeg,audio/*;q=0.9,*/*;q=0.8",
+              "Referer": target.includes("youdao") ? "https://www.youdao.com/" : "https://translate.google.com/",
+            },
+          });
+          if (!up.ok) {
+            lastErr = "upstream HTTP " + up.status;
+            continue;
+          }
+          const buf = await up.arrayBuffer();
+          if (!buf || buf.byteLength < 64) {
+            lastErr = "empty audio";
+            continue;
+          }
+          const ct = up.headers.get("Content-Type") || "audio/mpeg";
+          return new Response(buf, {
+            status: 200,
+            headers: {
+              "Content-Type": ct,
+              "Cache-Control": "public, max-age=86400",
+              ...corsHeaders(request),
+            },
+          });
+        } catch (e) {
+          lastErr = String(e && e.message ? e.message : e);
+        }
+      }
+      return bad(request, "TTS proxy failed: " + lastErr, 502);
     }
 
     return bad(request, "Not found", 404);

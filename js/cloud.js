@@ -1,15 +1,16 @@
-/* 口语小站 · 云同步 + ee API 客户端（Worker 未部署前本地仍可用） */
+/* 口语小站 · 云同步 + ee API 客户端（Worker 已 live） */
 (function (global) {
   "use strict";
 
   const CLOUD_KEY = "kouyu-xiaozhan-cloud-v6";
+  const DEFAULT_API_BASE = "https://kouyu-xiaozhan-api.kncrty.workers.dev";
   const PUSH_DEBOUNCE_MS = 2500;
 
   function defaultCloud() {
     return {
-      version: 6,
+      version: 7,
       familyCode: "",
-      apiBase: "",
+      apiBase: DEFAULT_API_BASE,
       syncEnabled: false,
       familySecret: "",
       lastSyncAt: null,
@@ -24,7 +25,14 @@
     try {
       const raw = localStorage.getItem(CLOUD_KEY);
       if (!raw) return defaultCloud();
-      return { ...defaultCloud(), ...JSON.parse(raw) };
+      const parsed = JSON.parse(raw);
+      const merged = { ...defaultCloud(), ...parsed };
+      // Empty saved base → use live default (still editable)
+      if (!normalizeBase(parsed.apiBase)) {
+        merged.apiBase = DEFAULT_API_BASE;
+      }
+      merged.version = 7;
+      return merged;
     } catch {
       return defaultCloud();
     }
@@ -62,7 +70,7 @@
   async function api(path, options) {
     const cfg = loadCloud();
     const base = normalizeBase(cfg.apiBase);
-    if (!base) throw new Error("未填写 API Base（需先部署 Cloudflare Worker）");
+    if (!base) throw new Error("未填写 API Base");
     const res = await fetch(base + path, options);
     let data = null;
     try {
@@ -101,7 +109,7 @@
     const base = normalizeBase(cfg.apiBase);
     if (!base) return { ok: false, error: "无 API Base" };
     const res = await fetch(base + "/api/health", { headers: headers(cfg) });
-    if (!res.ok) throw new Error("健康检查失败");
+    if (!res.ok) throw new Error("健康检查失败 HTTP " + res.status);
     return res.json();
   }
 
@@ -119,6 +127,72 @@
     saveCloud(cfg);
     setStatus("家庭房间已就绪");
     return data;
+  }
+
+  /**
+   * One-click: health → (optional) init family → toast-friendly result.
+   * options: { adminPasswordHash?, familyCode?, apiBase?, syncEnabled?, familySecret? }
+   * If field overrides provided, they are saved first.
+   */
+  async function oneClickConnect(options) {
+    options = options || {};
+    const cfg = loadCloud();
+    if (options.apiBase !== undefined) cfg.apiBase = normalizeBase(options.apiBase);
+    if (options.familyCode !== undefined) cfg.familyCode = normalizeCode(options.familyCode);
+    if (options.familySecret !== undefined) cfg.familySecret = String(options.familySecret || "").trim();
+    if (options.syncEnabled !== undefined) cfg.syncEnabled = !!options.syncEnabled;
+    if (!normalizeBase(cfg.apiBase)) cfg.apiBase = DEFAULT_API_BASE;
+    saveCloud(cfg);
+
+    const steps = [];
+    let health = null;
+    try {
+      health = await healthCheck();
+      if (!health || !health.ok) throw new Error("健康检查未通过");
+      steps.push("健康检查 ✓（sync=" + !!health.sync + " ai=" + !!health.ai + "）");
+    } catch (e) {
+      setStatus("连通失败", e.message || String(e));
+      return {
+        ok: false,
+        step: "health",
+        error: e.message || String(e),
+        steps,
+        health: null,
+      };
+    }
+
+    const code = normalizeCode(cfg.familyCode);
+    let family = null;
+    if (options.adminPasswordHash && code.length >= 4) {
+      try {
+        family = await initFamily(options.adminPasswordHash);
+        steps.push(
+          family.created
+            ? "家庭房间已创建 ✓"
+            : family.reused
+              ? "家庭房间已存在（复用）✓"
+              : "家庭房间就绪 ✓"
+        );
+      } catch (e) {
+        steps.push("家庭初始化 ✗ · " + (e.message || e));
+        setStatus("连通部分成功", e.message || String(e));
+        return {
+          ok: false,
+          step: "init",
+          error: e.message || String(e),
+          steps,
+          health,
+          family: null,
+        };
+      }
+    } else if (code.length < 4) {
+      steps.push("跳过家庭初始化（请先填 ≥4 位同步码）");
+    } else if (!options.adminPasswordHash) {
+      steps.push("跳过家庭初始化（需管理端密码；学习端仅测连通）");
+    }
+
+    setStatus("连通成功");
+    return { ok: true, step: "done", steps, health, family, error: null };
   }
 
   async function pushSisterProgress(payload) {
@@ -184,9 +258,15 @@
 
   async function eeChat(messages, learnerName) {
     const cfg = loadCloud();
-    const base = normalizeBase(cfg.apiBase);
-    if (!base) return null; // caller falls back to local
+    const base = normalizeBase(cfg.apiBase) || DEFAULT_API_BASE;
+    if (!base) return null;
     try {
+      // temporarily use base even if not in cfg for chat
+      const prev = cfg.apiBase;
+      if (!normalizeBase(cfg.apiBase)) {
+        cfg.apiBase = DEFAULT_API_BASE;
+        saveCloud(cfg);
+      }
       const data = await api("/api/ee/chat", {
         method: "POST",
         headers: headers(cfg),
@@ -196,6 +276,9 @@
           learnerName: learnerName || "妹妹",
         }),
       });
+      if (!prev && prev !== DEFAULT_API_BASE) {
+        /* keep default */
+      }
       return data;
     } catch (e) {
       console.warn("[cloud eeChat]", e);
@@ -205,9 +288,13 @@
 
   async function eeGenerateTasks(dateKey) {
     const cfg = loadCloud();
-    const base = normalizeBase(cfg.apiBase);
+    const base = normalizeBase(cfg.apiBase) || DEFAULT_API_BASE;
     if (!base) return null;
     try {
+      if (!normalizeBase(cfg.apiBase)) {
+        cfg.apiBase = DEFAULT_API_BASE;
+        saveCloud(cfg);
+      }
       const data = await api("/api/ee/tasks/generate", {
         method: "POST",
         headers: headers(cfg),
@@ -235,6 +322,7 @@
 
   global.KouyuCloud = {
     CLOUD_KEY,
+    DEFAULT_API_BASE,
     loadCloud,
     saveCloud,
     defaultCloud,
@@ -243,6 +331,7 @@
     isConfigured,
     healthCheck,
     initFamily,
+    oneClickConnect,
     pushSisterProgress,
     schedulePush,
     pullSisterProgress,

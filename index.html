@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#e07a5f" />
   <meta name="description" content="口语小站：妹妹免登录学英语打卡升级；哥哥管理端看进度发任务；ee 自动每日任务" />
-  <title>口语小站 · 任务升级练口语 v6</title>
-  <link rel="stylesheet" href="css/styles.css?v=6" />
+  <title>口语小站 · 任务升级练口语 v7</title>
+  <link rel="stylesheet" href="css/styles.css?v=7" />
 </head>
 <body>
   <!-- ========== 学习端（妹妹，免登录） ========== -->
@@ -58,20 +58,21 @@
         </div>
 
         <div class="card" id="cloud-settings-card">
-          <h3>☁️ 云同步设置 <span class="badge-soft">需部署 Worker</span></h3>
-          <p class="hint warn-box" id="cloud-honesty">⚠️ <strong>云同步需先部署 Cloudflare Worker。</strong>未配置 API Base 前，本站仍可本地使用；继续用下方「导出 / 导入」即可。Worker 未上线时请勿以为进度已上云。</p>
+          <h3>☁️ 云同步设置 <span class="badge-soft live">Worker 已上线</span></h3>
+          <p class="hint ok-box" id="cloud-honesty">✅ <strong>云 API 已 live。</strong>默认 API Base 已填好；兄妹约定同一<strong>家庭同步码</strong>并启用同步即可。哥哥管理端可一键「初始化家庭房间 + 测试连通」。导出 / 导入仍作备用。</p>
           <label class="field-label">家庭同步码（兄妹约定，至少 4 位字母数字）</label>
           <input id="cloud-family-code" class="field-input" placeholder="例如 kncre-mei-01" autocomplete="off" />
-          <label class="field-label">API Base（Worker 地址，不要末尾 /）</label>
-          <input id="cloud-api-base" class="field-input" placeholder="部署后填 https://kouyu-xiaozhan-api.xxx.workers.dev" autocomplete="off" />
+          <label class="field-label">API Base（可改；默认已指向 live Worker）</label>
+          <input id="cloud-api-base" class="field-input" placeholder="https://kouyu-xiaozhan-api.kncrty.workers.dev" autocomplete="off" />
           <label class="field-label">可选 · Family Secret（若 Worker 设置了 FAMILY_SECRET）</label>
           <input id="cloud-family-secret" class="field-input" type="password" placeholder="通常留空" autocomplete="off" />
           <label class="check-row"><input type="checkbox" id="cloud-sync-enabled" /> 启用云同步（妹妹进度防抖自动推送）</label>
           <div class="btn-row" style="margin-top:10px;">
             <button type="button" id="btn-cloud-save" class="btn btn-primary">保存设置</button>
-            <button type="button" id="btn-cloud-test" class="btn btn-secondary">测试连接</button>
+            <button type="button" id="btn-cloud-oneclick-learn" class="btn btn-secondary">⚡ 测试连通</button>
             <button type="button" id="btn-cloud-push-now" class="btn btn-ghost">立即推送</button>
           </div>
+          <p class="hint" style="margin-top:6px;">「测试连通」会保存设置并检查 Worker 健康；完整「初始化家庭房间」请在管理端一键完成（需要管理密码）。</p>
           <p id="cloud-sync-status" class="status-toast cloud-status">状态：未配置 · 上次同步：—</p>
         </div>
 
@@ -116,7 +117,7 @@
             <button type="button" class="btn btn-ghost" data-go="#chat">找教练 ee</button>
           </div>
         </div>
-        <p class="footer-note">妹妹免登录 · 哥哥管理需密码 · 云同步需 Worker（未部署则本地仍可用）· 暂未正式交给妹妹</p>
+        <p class="footer-note">妹妹免登录 · 哥哥管理需密码 · 云同步已 live · 暂未正式交给妹妹</p>
       </section>
 
       <!-- 进度 / 徽章 -->
@@ -189,7 +190,7 @@
             <div class="compare-box"><strong>原音</strong><span class="compare-note">浏览器语音合成</span></div>
             <div class="compare-box"><strong>本次得分（演示）</strong><div id="mock-score" class="score">—</div></div>
           </div>
-          <p id="pronounce-status" class="status-toast">选择条目后，可听提示、录音并对比。</p>
+          <p id="pronounce-status" class="status-toast">选择条目后点「听原音」。手机（Vivo/QQ 等）会自动改用在线发音；可反复点重播。</p>
           <button type="button" id="btn-claim-pronounce" class="btn btn-primary" style="margin-top:10px;">✅ 完成发音任务并领 XP</button>
         </div>
       </section>
@@ -200,6 +201,7 @@
         <p id="vocab-page-hint" class="hint page-lead"></p>
         <h3 id="vocab-page-theme" class="theme-heading"></h3>
         <div id="vocab-theme-switch" class="chip-row" style="margin-bottom:12px;"></div>
+        <p id="vocab-speak-status" class="status-toast hint">点单词旁「听发音」；Vivo/QQ 等手机会自动走在线发音，可反复点重播。</p>
         <div id="vocab-full-list" class="vocab-grid"></div>
         <div class="card" style="margin-top:12px;">
           <div class="btn-row">
@@ -375,6 +377,9 @@
           <p id="adm-xp-bar-label" class="hint"></p>
           <div class="progress-wrap"><div id="adm-xp-bar" class="progress-bar"></div></div>
           <p id="adm-task-summary" class="hint" style="margin-top:8px;"></p>
+          <p id="adm-task-rate-label" class="hint"></p>
+          <div class="progress-wrap rate-wrap"><div id="adm-task-rate-bar" class="progress-bar rate-bar"></div></div>
+          <p id="adm-last-sync" class="hint sync-meta">上次同步：—</p>
         </div>
 
         <div class="card">
@@ -388,7 +393,9 @@
         </div>
 
         <div class="card">
-          <h3>🎯 测验成绩</h3>
+          <h3>🎯 测验成绩总览</h3>
+          <div id="adm-challenge-summary" class="adm-challenge-summary"></div>
+          <h4 style="margin-top:14px;">最近记录</h4>
           <ul id="adm-challenges" class="adm-challenge-list"></ul>
         </div>
 
@@ -417,11 +424,16 @@
         </div>
 
         <div class="card">
-          <h3>☁️ 云端拉取妹妹进度</h3>
-          <p class="hint">需已在学习端保存同一家庭同步码 + API Base，并完成「初始化家庭房间」。Worker 未部署时此功能不可用。</p>
-          <div class="btn-row">
-            <button type="button" id="btn-cloud-init-family" class="btn btn-secondary">初始化家庭房间</button>
-            <button type="button" id="btn-cloud-pull" class="btn btn-primary">从云端拉取</button>
+          <h3>☁️ 云端 · 一键连通 / 拉取</h3>
+          <p class="hint">API 已默认指向 live Worker。填好家庭同步码后点「一键初始化 + 测试连通」（健康检查 + 创建/复用家庭房间）。</p>
+          <label class="field-label">家庭同步码</label>
+          <input id="adm-cloud-family-code" class="field-input" placeholder="例如 kncre-mei-01" autocomplete="off" />
+          <label class="field-label">API Base</label>
+          <input id="adm-cloud-api-base" class="field-input" placeholder="https://kouyu-xiaozhan-api.kncrty.workers.dev" autocomplete="off" />
+          <div class="btn-row" style="margin-top:10px;">
+            <button type="button" id="btn-cloud-oneclick" class="btn btn-primary">⚡ 一键初始化 + 测试连通</button>
+            <button type="button" id="btn-cloud-init-family" class="btn btn-secondary">仅初始化家庭房间</button>
+            <button type="button" id="btn-cloud-pull" class="btn btn-ghost">从云端拉取</button>
           </div>
           <p id="adm-cloud-status" class="status-toast">云端：—</p>
         </div>
@@ -463,10 +475,11 @@
   </div>
   <div id="app-toast" class="app-toast" role="status" aria-live="polite"></div>
 
-  <script src="js/storage.js?v=6"></script>
-  <script src="js/cloud.js?v=6"></script>
-  <script src="js/game.js?v=6"></script>
-  <script src="js/admin.js?v=6"></script>
-  <script src="js/app.js?v=6"></script>
+  <script src="js/tts.js?v=7"></script>
+  <script src="js/storage.js?v=7"></script>
+  <script src="js/cloud.js?v=7"></script>
+  <script src="js/game.js?v=7"></script>
+  <script src="js/admin.js?v=7"></script>
+  <script src="js/app.js?v=7"></script>
 </body>
 </html>

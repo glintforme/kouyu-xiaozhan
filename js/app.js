@@ -1,4 +1,4 @@
-/* 口语小站 · 学习端主逻辑 v6 · 云同步 + ee API */
+/* 口语小站 · 学习端主逻辑 v7 · 云同步 live + ee API */
 (function () {
   "use strict";
 
@@ -51,7 +51,9 @@
     }
     const badge = document.getElementById("chat-engine-badge");
     if (badge) {
-      badge.textContent = Cloud.normalizeBase(cfg.apiBase) ? "云端 ee（可回落本地）" : "本地 ee";
+      badge.textContent = (Cloud.normalizeBase(cfg.apiBase) || Cloud.DEFAULT_API_BASE)
+        ? "云端 ee（可回落本地）"
+        : "本地 ee";
     }
   }
 
@@ -63,7 +65,7 @@
     const secEl = document.getElementById("cloud-family-secret");
     const enEl = document.getElementById("cloud-sync-enabled");
     if (codeEl) codeEl.value = cfg.familyCode || "";
-    if (baseEl) baseEl.value = cfg.apiBase || "";
+    if (baseEl) baseEl.value = cfg.apiBase || Cloud.DEFAULT_API_BASE;
     if (secEl) secEl.value = cfg.familySecret || "";
     if (enEl) enEl.checked = !!cfg.syncEnabled;
     renderCloudStatus();
@@ -92,24 +94,43 @@
         Gm.EE_CONFIG.mode = next.apiBase ? "api" : "local-auto";
       }
       renderCloudStatus();
-      toast(next.apiBase ? "云同步设置已保存（Worker 未部署则测试会失败）" : "已保存：当前为本地模式");
+      toast(next.apiBase ? "云同步设置已保存" : "已保存：当前为本地模式");
     });
 
     document.getElementById("btn-cloud-test")?.addEventListener("click", async () => {
-      // save fields first
-      document.getElementById("btn-cloud-save")?.click();
-      const c = Cloud.loadCloud();
-      if (!c.apiBase) {
-        toast("请先填写 API Base（部署 Worker 后才有地址）");
-        return;
+      document.getElementById("btn-cloud-oneclick-learn")?.click();
+    });
+
+    document.getElementById("btn-cloud-oneclick-learn")?.addEventListener("click", async () => {
+      const next = Cloud.loadCloud();
+      next.familyCode = Cloud.normalizeCode(codeEl?.value || "");
+      next.apiBase = Cloud.normalizeBase(baseEl?.value || "") || Cloud.DEFAULT_API_BASE;
+      next.familySecret = (secEl?.value || "").trim();
+      next.syncEnabled = !!enEl?.checked;
+      if (baseEl) baseEl.value = next.apiBase;
+      Cloud.saveCloud(next);
+      if (Gm.EE_CONFIG) {
+        Gm.EE_CONFIG.apiEndpoint = next.apiBase + "/api/ee/tasks/generate";
+        Gm.EE_CONFIG.mode = "api";
       }
+      toast("正在测试云端连通…");
       try {
-        const h = await Cloud.healthCheck();
-        toast(h.ok ? `连接成功 · sync=${!!h.sync} ai=${!!h.ai}` : "连接异常");
-        Cloud.setStatus(h.ok ? "连接正常" : "连接异常");
+        const result = await Cloud.oneClickConnect({
+          familyCode: next.familyCode,
+          apiBase: next.apiBase,
+          familySecret: next.familySecret,
+          syncEnabled: next.syncEnabled,
+          // learn side: health only (no admin hash)
+        });
+        const msg = (result.steps || []).join(" · ");
+        if (result.ok) {
+          toast("连通成功：" + msg);
+        } else {
+          toast("连通失败：" + (result.error || msg));
+        }
         renderCloudStatus();
       } catch (e) {
-        toast("连接失败：" + (e.message || e) + "（若尚未部署 Worker 属正常）");
+        toast("连通失败：" + (e.message || e));
         Cloud.setStatus("连接失败", e.message || String(e));
         renderCloudStatus();
       }
@@ -147,7 +168,14 @@
   // If API Base set, try replace today's ee tasks from Worker (once per day key)
   (async () => {
     try {
-      if (!Cloud || !Cloud.normalizeBase(Cloud.loadCloud().apiBase)) return;
+      if (!Cloud) return;
+      {
+        const _c = Cloud.loadCloud();
+        if (!Cloud.normalizeBase(_c.apiBase)) {
+          _c.apiBase = Cloud.DEFAULT_API_BASE;
+          Cloud.saveCloud(_c);
+        }
+      }
       if (state.lastEeDailyKey === Gm.todayKey()) return;
       const remote = await Gm.fetchEeTasks();
       if (remote && remote.length) {
@@ -726,17 +754,32 @@
     }
   }
 
-  function speakText(text) {
-    if (!window.speechSynthesis) {
-      const status = document.getElementById("pronounce-status");
-      if (status) status.textContent = "当前浏览器不支持语音合成。";
+  function speakStatusEl() {
+    return document.getElementById("pronounce-status") || document.getElementById("vocab-speak-status");
+  }
+
+  async function speakText(text) {
+    const status = speakStatusEl();
+    const TTS = window.KouyuTTS;
+    if (!TTS) {
+      if (status) status.textContent = "发音模块未加载。";
+      toast("发音模块未加载");
       return;
     }
-    window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = "en-US";
-    u.rate = 0.9;
-    window.speechSynthesis.speak(u);
+    try {
+      await TTS.speak(text, {
+        lang: "en-US",
+        rate: 0.88,
+        pitch: 1.02,
+        onStatus: (msg) => {
+          if (status) status.textContent = msg;
+        },
+      });
+    } catch (e) {
+      const msg = "发音失败：" + (e && e.message ? e.message : "请换浏览器或检查网络");
+      if (status) status.textContent = msg;
+      toast(msg);
+    }
   }
 
   document.getElementById("btn-play-original")?.addEventListener("click", () => {
@@ -881,7 +924,7 @@
 
     let reply = null;
     const cfg = Cloud ? Cloud.loadCloud() : null;
-    if (cfg && Cloud.normalizeBase(cfg.apiBase)) {
+    if (cfg && Cloud && (Cloud.normalizeBase(cfg.apiBase) || Cloud.DEFAULT_API_BASE)) {
       appendBubble("bot", "教练 ee 思考中…");
       const thinking = document.getElementById("chat-log")?.lastElementChild;
       try {
@@ -1327,10 +1370,13 @@
   bindCloudSettings();
   if (Cloud && Gm.EE_CONFIG) {
     const c = Cloud.loadCloud();
-    if (Cloud.normalizeBase(c.apiBase)) {
-      Gm.EE_CONFIG.apiEndpoint = c.apiBase.replace(/\/+$/, "") + "/api/ee/tasks/generate";
-      Gm.EE_CONFIG.mode = "api";
+    const base = Cloud.normalizeBase(c.apiBase) || Cloud.DEFAULT_API_BASE;
+    if (!Cloud.normalizeBase(c.apiBase)) {
+      c.apiBase = Cloud.DEFAULT_API_BASE;
+      Cloud.saveCloud(c);
     }
+    Gm.EE_CONFIG.apiEndpoint = base + "/api/ee/tasks/generate";
+    Gm.EE_CONFIG.mode = "api";
   }
   renderPronounceChips();
   updatePronouncePanel();

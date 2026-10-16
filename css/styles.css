@@ -1497,3 +1497,51 @@ body.mode-admin .xp-hud { display: none; }
 #chat-engine-badge {
   margin-left: 4px;
 }
+
+/* —— v7 cloud live + admin progress —— */
+.badge-soft.live {
+  background: #e6f6ec;
+  color: #1b7a3d;
+  border: 1px solid #b7e0c5;
+}
+.ok-box {
+  background: #eef9f1;
+  border: 1px solid #b7e0c5;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+.rate-wrap { margin-top: 4px; height: 8px; }
+.rate-bar { background: linear-gradient(90deg, #81b29a, #3d8b6e); }
+.sync-meta {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.adm-challenge-summary { margin-top: 4px; }
+.adm-ch-summary-head {
+  font-size: 13px;
+  margin-bottom: 10px;
+  color: var(--text);
+}
+.adm-ch-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+.adm-ch-chip {
+  background: var(--primary-soft);
+  border-radius: 12px;
+  padding: 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  border: 1px solid transparent;
+}
+.adm-ch-chip.pass { border-color: #b7e0c5; background: #eef9f1; }
+.adm-ch-chip.fail { border-color: #f0c9a0; background: #fff4e8; }
+.adm-ch-chip.muted { opacity: 0.7; }
+.adm-ch-chip strong { font-size: 16px; }
+@media (max-width: 480px) {
+  .adm-ch-grid { grid-template-columns: 1fr; }
+}
