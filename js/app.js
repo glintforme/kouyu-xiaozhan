@@ -416,9 +416,14 @@
     document.querySelector(".bottom-nav")?.classList.remove("hidden");
   }
 
+  function clearChatLayout() {
+    document.body.classList.remove("chat-layout");
+  }
+
   function navigate(hash) {
     const raw = (hash || "#home").replace("#", "") || "home";
     if (raw === "admin" || raw.startsWith("admin/")) {
+      clearChatLayout();
       Ad.enterAdminShell();
       return;
     }
@@ -428,6 +433,7 @@
     document.querySelectorAll("#shell-learn .page").forEach((el) => {
       el.classList.toggle("active", el.id === `page-${pageId}`);
     });
+    document.body.classList.toggle("chat-layout", pageId === "chat");
     const morePages = ["knowledge", "review", "path", "progress"];
     document.querySelectorAll(".nav-btn").forEach((btn) => {
       if (btn.id === "nav-more-btn") {

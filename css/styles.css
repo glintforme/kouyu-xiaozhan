@@ -1742,3 +1742,177 @@ button.vocab-speak {
   min-width: 48px;
   padding: 0 10px;
 }
+
+/* —— Chat mobile layout fix (v11) ——
+   Root cause: chat-shell used height:min(70dvh,560px) while title, long
+   page-lead, wrapped quick-replies, voice bar, composer, and fixed bottom
+   nav also competed for space. On ~375×667 the shell overflowed under the
+   nav / overflow:hidden clipped bubbles & controls.
+*/
+:root {
+  --chat-composer-pad: 8px;
+}
+
+.chat-shell {
+  /* Prefer filling remaining space when parent is a flex column;
+     keep a sane fallback height for desktop / non-chat-layout. */
+  height: min(70dvh, 560px);
+  max-height: calc(100dvh - var(--nav-h) - var(--safe-bottom) - 180px);
+  min-height: 260px;
+}
+
+.chat-log {
+  flex: 1 1 auto;
+  min-height: 0; /* critical: allow flex child to scroll */
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding-bottom: 20px;
+  scroll-padding-bottom: 20px;
+}
+
+.quick-replies {
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  padding: 8px 12px;
+  gap: 8px;
+  scrollbar-width: thin;
+}
+
+.quick-replies button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.voice-chat-bar,
+.chat-input-bar {
+  flex-shrink: 0;
+}
+
+.voice-chat-bar {
+  padding: 10px 12px 0;
+}
+
+.chat-input-bar {
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px) * 0);
+  /* safe-area handled by page chrome / bottom nav; keep composer tight */
+  padding-bottom: 10px;
+}
+
+/* Full-viewport chat mode (class toggled in navigate) */
+body.chat-layout {
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+  padding-bottom: 0;
+  overscroll-behavior: none;
+}
+
+body.chat-layout #shell-learn {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+
+body.chat-layout #shell-learn .app-header,
+body.chat-layout #shell-learn .xp-hud {
+  flex-shrink: 0;
+}
+
+body.chat-layout #shell-learn .container {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+body.chat-layout #page-chat.active {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  animation: none; /* avoid transform creating containing block quirks */
+}
+
+body.chat-layout #page-chat .section-title {
+  flex-shrink: 0;
+  font-size: 18px;
+  margin-bottom: 4px;
+}
+
+body.chat-layout #page-chat .page-lead {
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  margin-bottom: 8px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+body.chat-layout #page-chat .chat-shell {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  max-height: none;
+  overflow: hidden;
+}
+
+/* Bottom nav participates in flex instead of covering content */
+body.chat-layout #shell-learn .bottom-nav {
+  position: relative;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  flex-shrink: 0;
+  height: calc(var(--nav-h) + var(--safe-bottom));
+  padding-bottom: var(--safe-bottom);
+  z-index: 30;
+}
+
+/* Keyboard / short phones */
+@media (max-width: 430px) {
+  body.chat-layout #page-chat .page-lead {
+    -webkit-line-clamp: 1;
+  }
+  body.chat-layout .xp-hud {
+    padding-top: 4px;
+  }
+  .btn-voice-hold {
+    min-height: 48px;
+    font-size: 14px;
+  }
+  .chat-input-bar {
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+  .chat-input-bar input {
+    min-height: 44px;
+    padding: 10px 12px;
+  }
+}
+
+@supports not (height: 100dvh) {
+  body.chat-layout {
+    height: 100vh;
+    max-height: 100vh;
+  }
+  body.chat-layout #shell-learn {
+    height: 100vh;
+    max-height: 100vh;
+  }
+  .chat-shell {
+    max-height: calc(100vh - var(--nav-h) - var(--safe-bottom) - 180px);
+  }
+}
