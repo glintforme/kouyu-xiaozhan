@@ -156,6 +156,7 @@
     let stream = null;
     let recorder = null;
     let chunks = [];
+    let pcmCtx = null, pcmSrc = null, pcmNode = null, pcmChunks = [], pcmRate = 48000;
     let recognition = null;
     let webSpeechText = "";
     let mode = "none";
@@ -173,10 +174,12 @@
       startedAt = Date.now();
       webSpeechText = "";
       chunks = [];
+      pcmChunks = [];
       mode = "none";
 
       // Prefer Web Speech on Chrome/Edge (incl. Android Chrome)
-      const SR = SpeechRec();
+      const isAndroid = /Android/i.test((global.navigator && navigator.userAgent) || "");
+      const SR = isAndroid ? null : SpeechRec();
       if (SR) {
         try {
           recognition = new SR();
@@ -218,6 +221,26 @@
               channelCount: 1,
             },
           });
+          // Universal path: capture raw PCM directly (no container decode needed)
+          try {
+            const AC = global.AudioContext || global.webkitAudioContext;
+            if (AC) {
+              pcmCtx = new AC();
+              if (pcmCtx.state === "suspended") { try { await pcmCtx.resume(); } catch {} }
+              pcmRate = pcmCtx.sampleRate;
+              pcmSrc = pcmCtx.createMediaStreamSource(stream);
+              pcmNode = pcmCtx.createScriptProcessor(4096, 1, 1);
+              pcmNode.onaudioprocess = (ev) => {
+                if (!active) return;
+                pcmChunks.push(new Float32Array(ev.inputBuffer.getChannelData(0)));
+              };
+              pcmSrc.connect(pcmNode);
+              pcmNode.connect(pcmCtx.destination);
+            }
+          } catch (e) {
+            pcmChunks = [];
+            pcmNode = null;
+          }
           const mime = pickRecorderMime();
           recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
           chunks = [];
@@ -308,14 +331,37 @@
       });
     }
 
+    function stopPcm() {
+      let wav = null;
+      try {
+        const total = pcmChunks.reduce((n, c) => n + c.length, 0);
+        if (total > 0) {
+          const all = new Float32Array(total);
+          let o = 0;
+          for (const c of pcmChunks) { all.set(c, o); o += c.length; }
+          let peak = 0;
+          for (let i = 0; i < all.length; i += 16) peak = Math.max(peak, Math.abs(all[i]));
+          if (peak > 0.0005) wav = encodeWav(downsampleTo16k(all, pcmRate), 16000);
+        }
+      } catch { wav = null; }
+      try { pcmNode && pcmNode.disconnect(); } catch {}
+      try { pcmSrc && pcmSrc.disconnect(); } catch {}
+      try { pcmCtx && pcmCtx.close(); } catch {}
+      pcmCtx = pcmSrc = pcmNode = null;
+      pcmChunks = [];
+      return wav;
+    }
+
     async function stop() {
       if (!active) return { ok: false, text: "", engine: null };
       active = false;
       clearMax();
       const elapsed = Date.now() - startedAt;
       stopRecognition();
-      const blob = await stopRecorder();
+      const pcmWav = stopPcm();
+      const recBlob = await stopRecorder();
       stopTracks();
+      const blob = pcmWav || recBlob;
 
       if (elapsed < MIN_MS) {
         onStatus("说得太短了，请按住多说一会儿");
@@ -343,7 +389,7 @@
       try {
         let wav;
         try {
-          wav = await blobToWav16k(blob);
+          wav = pcmWav || (await blobToWav16k(blob));
         } catch (e) {
           // send original if decode fails
           wav = blob;
@@ -358,7 +404,7 @@
         return { ok: true, text, engine: data.engine || "whisper", model: data.model, blob: wav };
       } catch (e) {
         const msg = e && e.message ? e.message : String(e);
-        onStatus("转写失败：" + msg.slice(0, 80));
+        onStatus(/decode|3007/i.test(msg) ? "转写失败：这台手机录音格式云端解不开，请再按住说一次；仍不行可先打字" : "转写失败：" + msg.slice(0, 80));
         return { ok: false, text: "", engine: null, reason: "stt-error", error: e };
       }
     }

@@ -659,7 +659,7 @@ export default {
       const result = await runWhisperStt(env, parsed.bytes, parsed.mime);
       if (result.error) {
         return json(
-          { ok: false, error: result.error, engine: null, text: "" },
+          { ok: false, error: (/3007|decode/i.test(result.error) ? "录音格式无法解码，请再录一次（已自动用 WAV 重试）" : "语音转写失败") + "｜" + String(result.error).slice(0, 160), engine: null, text: "" },
           502,
           request
         );
